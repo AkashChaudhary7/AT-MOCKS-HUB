@@ -91,6 +91,46 @@ import MockBuilder from './MockBuilder';
 
 const LOCAL_STORAGE_MAX_BYTES = 4 * 1024 * 1024; // 4MB Limit
 
+const filterQuestionsByExam = (questions: Question[], exam: ExamConfig): Question[] => {
+  if (!exam) return questions;
+  const examIdLower = exam.id.toLowerCase();
+  const examNameLower = exam.name.toLowerCase();
+  const examSubjects = Object.keys(exam.subjectDistribution).map(s => s.toLowerCase().trim());
+  const isDSSSB = examIdLower.includes("dsssb") || examNameLower.includes("dsssb");
+
+  return questions.filter(q => {
+    const qTarget = (q.targetExam || "").toLowerCase().trim();
+    const qSubject = (q.subject || "").toLowerCase().trim();
+
+    // 1. Direct tag/subject match if configured
+    if (exam.sourceExamTag) {
+      const lowerTag = exam.sourceExamTag.toLowerCase().trim();
+      if (qTarget === lowerTag || qSubject === lowerTag) {
+        return true;
+      }
+    }
+
+    // 2. Direct match by exam ID or name
+    if (qTarget === examIdLower || qTarget === examNameLower) {
+      return true;
+    }
+
+    // 3. DSSSB IT and DSSSB TGT include ALL "common" questions
+    if (isDSSSB && (qTarget === "common" || qSubject === "common")) {
+      return true;
+    }
+
+    // 4. Questions uploaded in a special subject mapped in this exam
+    if (examSubjects.includes(qSubject)) {
+      if (qTarget === "" || qTarget === "common" || qTarget === examIdLower || qTarget === examNameLower) {
+        return true;
+      }
+    }
+
+    return false;
+  });
+};
+
 export const getLocalStorageSize = (): number => {
   let total = 0;
   try {
@@ -1074,6 +1114,7 @@ export default function Dashboard() {
             };
           }
           setAssignedExam(assigned);
+          setIsAssignedExamSynced(localStorage.getItem(`MOCK_ASSIGNED_EXAM_SYNCED_${username}`) === 'true');
         } else {
           setCurrentUser(null);
           setCurrentUserSlotIndex(null);
@@ -1101,6 +1142,19 @@ export default function Dashboard() {
     }
   }, [currentUser]);
 
+  // Handle opening specific tabs in new windows/tabs via query parameters
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const tabParam = params.get('tab');
+      if (tabParam && ['exam-creator', 'question-uploader', 'admin', 'notes', 'analytics'].includes(tabParam)) {
+        setActiveTab(tabParam);
+      }
+    } catch (e) {
+      console.warn("Could not sync tab with URL search parameter:", e);
+    }
+  }, [location.search]);
+
   // New offline support and local safeguards states
   const [practiceSubTab, setPracticeSubTab] = useState<'mock' | 'pyq'>('mock');
   const [forceOfflineMode, setForceOfflineMode] = useState<boolean>(false);
@@ -1109,10 +1163,23 @@ export default function Dashboard() {
   const [localBytesUsage, setLocalBytesUsage] = useState<number>(0);
 
   // New Exam Configs pattern states
-  const [examConfigs, setExamConfigs] = useState<ExamConfig[]>(DEFAULT_EXAM_CONFIGS);
+  const [examConfigs, setExamConfigs] = useState<ExamConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem('MOCK_EXAM_CONFIGS');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+    return DEFAULT_EXAM_CONFIGS;
+  });
   const [selectedExamId, setSelectedExamId] = useState<string>("custom");
   const [activeCountdownExamId, setActiveCountdownExamId] = useState<string>("exam-dsssb-tgt");
   const [analyticsFilter, setAnalyticsFilter] = useState<string>("selected");
+  const [isAssignedExamSynced, setIsAssignedExamSynced] = useState<boolean>(() => {
+    const user = localStorage.getItem('MOCK_CURRENT_USER');
+    if (!user) return false;
+    return localStorage.getItem(`MOCK_ASSIGNED_EXAM_SYNCED_${user}`) === 'true';
+  });
 
   // State to store custom target scores for each exam configuration
   const [targetScores, setTargetScores] = useState<Record<string, number>>(() => {
@@ -1139,6 +1206,7 @@ export default function Dashboard() {
     setCurrentUserSlotIndex(null);
     setIsAdminAuthenticated(false);
     setAssignedExam(null);
+    setIsAssignedExamSynced(false);
     setAttempts([]);
     setDailyGoal({
       baseTarget: 20,
@@ -1173,17 +1241,7 @@ export default function Dashboard() {
     }
   };
 
-  // Force DSSSB IT exam restriction for Yash & Tanu
-  useEffect(() => {
-    if (currentUserSlotIndex === 1 || currentUserSlotIndex === 2 || currentUser === 'yash chaudhary' || currentUser === 'tanu chaudhary') {
-      if (activeCountdownExamId !== 'exam-dsssb-it') {
-        setActiveCountdownExamId('exam-dsssb-it');
-      }
-      if (selectedExamId !== 'exam-dsssb-it') {
-        setSelectedExamId('exam-dsssb-it');
-      }
-    }
-  }, [currentUser, activeCountdownExamId, selectedExamId]);
+  // Grant user privilege to make custom mocks (removed restriction)
 
   // Admin pattern selection and classification states
   const [selectedAdminExamId, setSelectedAdminExamId] = useState<string>("");
@@ -1636,9 +1694,9 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Directly load question bundles from Firebase on initialization (and not from local index first)
+  // Directly load question bundles and exam configurations from Firebase on initialization
   useEffect(() => {
-    const initQuestions = async () => {
+    const initQuestionsAndConfigs = async () => {
       if (isOnline) {
         try {
           await loadChunks();
@@ -1646,13 +1704,62 @@ export default function Dashboard() {
           console.error("Failed to load chunks from Firebase on init:", err);
           setQuestions(SAMPLE_QUESTIONS);
         }
+        try {
+          const querySnapshot = await getDocs(collection(db, "exam_configs"));
+          trackFirestoreRead(querySnapshot.empty ? 1 : querySnapshot.size);
+          if (!querySnapshot.empty) {
+            const configs: ExamConfig[] = [];
+            querySnapshot.forEach(docSnap => {
+              const data = docSnap.data();
+              if (data && data.id) {
+                configs.push(data as ExamConfig);
+              }
+            });
+            if (configs.length > 0) {
+              setExamConfigs(configs);
+              safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(configs));
+            }
+          }
+        } catch (e) {
+          console.error("Failed to fetch exam configurations from Firestore on init:", e);
+        }
       } else {
         console.log("Offline mode: Bootstrapping with sample question bank.");
         setQuestions(SAMPLE_QUESTIONS);
       }
     };
-    initQuestions();
-  }, [isOnline, loadChunks]);
+    initQuestionsAndConfigs();
+  }, [isOnline, loadChunks, trackFirestoreRead]);
+
+  // Real-time listener for Exam Configurations in Firestore to keep UI fully synced on deletion or updates
+  useEffect(() => {
+    if (!isOnline) return;
+    const unsubscribe = onSnapshot(collection(db, "exam_configs"), (snapshot) => {
+      const configs: ExamConfig[] = [];
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        if (data && data.id) {
+          configs.push(data as ExamConfig);
+        }
+      });
+      
+      // Ensure DEFAULT_EXAM_CONFIGS are always present in the local configs state
+      const mergedConfigs = [...configs];
+      if (typeof DEFAULT_EXAM_CONFIGS !== 'undefined') {
+        DEFAULT_EXAM_CONFIGS.forEach(preset => {
+          if (!mergedConfigs.some(c => c.id === preset.id)) {
+            mergedConfigs.push(preset);
+          }
+        });
+      }
+
+      setExamConfigs(mergedConfigs);
+      safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(mergedConfigs));
+    }, (error) => {
+      console.warn("Real-time exam configs sync failed or restricted:", error);
+    });
+    return () => unsubscribe();
+  }, [isOnline]);
 
   // Online/Offline status check and offline creation sync trigger
   useEffect(() => {
@@ -1800,7 +1907,7 @@ export default function Dashboard() {
          return tagA.localeCompare(tagB);
       });
       
-      const chunkSize = 600; // Bundles of exactly 600 questions
+      const chunkSize = 100; // Bundles of exactly 100 questions to prevent Firestore 1MB document payload limits on large uploads
       const chunksCount = Math.ceil(sortedList.length / chunkSize);
       
       // Get previous chunk count to clean up any obsolete ones
@@ -2345,17 +2452,46 @@ export default function Dashboard() {
         return;
       }
 
-      // Filter pool to questions matching the exam's sourceExamTag if configured
+      // Filter pool dynamically based on user's selected/assigned exam target and subject rules:
+      // - DSSSB IT and DSSSB TGT include ALL questions uploaded in "common" (case-insensitive targetExam or subject).
+      // - Special subjects are synced to their related exam.
       let examPool = sourcePool;
-      if (exam.sourceExamTag) {
-        const lowerTag = exam.sourceExamTag.toLowerCase().trim();
-        const filteredPool = sourcePool.filter(q => 
-          (q.targetExam && q.targetExam.toLowerCase().trim() === lowerTag) || 
-          (q.subject && q.subject.toLowerCase().trim() === lowerTag)
-        );
-        
-        examPool = filteredPool;
-      }
+      const examIdLower = exam.id.toLowerCase();
+      const examNameLower = exam.name.toLowerCase();
+      const examSubjects = Object.keys(exam.subjectDistribution).map(s => s.toLowerCase().trim());
+      const isDSSSB = examIdLower.includes("dsssb") || examNameLower.includes("dsssb");
+
+      examPool = sourcePool.filter(q => {
+        const qTarget = (q.targetExam || "").toLowerCase().trim();
+        const qSubject = (q.subject || "").toLowerCase().trim();
+
+        // 1. Direct tag/subject match if configured
+        if (exam.sourceExamTag) {
+          const lowerTag = exam.sourceExamTag.toLowerCase().trim();
+          if (qTarget === lowerTag || qSubject === lowerTag) {
+            return true;
+          }
+        }
+
+        // 2. Direct match by exam ID or name
+        if (qTarget === examIdLower || qTarget === examNameLower) {
+          return true;
+        }
+
+        // 3. DSSSB IT and DSSSB TGT include ALL "common" questions
+        if (isDSSSB && (qTarget === "common" || qSubject === "common")) {
+          return true;
+        }
+
+        // 4. Questions uploaded in a special subject mapped in this exam
+        if (examSubjects.includes(qSubject)) {
+          if (qTarget === "" || qTarget === "common" || qTarget === examIdLower || qTarget === examNameLower) {
+            return true;
+          }
+        }
+
+        return false;
+      });
 
       // Compile questions according to subject pattern mapping with ±2 random offset
       let compiledList: Question[] = [];
@@ -3159,7 +3295,7 @@ export default function Dashboard() {
     );
   }
 
-  const isAdminTab = ['admin', 'exam-creator', 'question-uploader', 'user-management', 'flagged-manager'].includes(activeTab);
+  const isAdminTab = ['admin', 'question-uploader', 'user-management', 'flagged-manager'].includes(activeTab);
 
   return (
     <div className={isDarkMode ? 'dark text-slate-100 bg-slate-950 min-h-screen transition-colors' : 'text-slate-800 bg-slate-50 min-h-screen transition-colors'}>
@@ -3302,6 +3438,22 @@ export default function Dashboard() {
                   </div>
                 </button>
 
+                {/* Exam Rules & Custom Mocks is now open to all students/users */}
+                <button
+                  onClick={() => { window.open(window.location.origin + '?tab=exam-creator', '_blank'); setIsMobileDrawerOpen(false); }}
+                  className={`w-full flex items-center space-x-3 text-xs font-black uppercase p-3 rounded-xl border transition-all ${
+                    activeTab === 'exam-creator'
+                      ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 shadow-md shadow-indigo-100/10'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-500'
+                  }`}
+                >
+                  <Trophy className="w-4 h-4 shrink-0 text-amber-500 animate-pulse" />
+                  <div className="flex-1 flex items-center justify-between text-left">
+                    <span>Custom Mocks & Rules</span>
+                    <ExternalLink className="h-3 w-3 text-slate-450 shrink-0" />
+                  </div>
+                </button>
+
                 {/* Admin Sections */}
                 {currentUserSlotIndex === 0 && (
                   <div className="space-y-2 pt-3 border-t border-slate-100 dark:border-slate-800 mt-2">
@@ -3320,19 +3472,7 @@ export default function Dashboard() {
                     </button>
 
                     <button
-                      onClick={() => { setActiveTab('exam-creator'); setReviewedAttempt(null); setIsMobileDrawerOpen(false); }}
-                      className={`w-full flex items-center space-x-3 text-xs font-black uppercase p-3 rounded-xl border transition-all ${
-                        activeTab === 'exam-creator'
-                          ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-500'
-                      }`}
-                    >
-                      <Trophy className="w-4 h-4 shrink-0" />
-                      <span>Exam Rules</span>
-                    </button>
-
-                    <button
-                      onClick={() => { setActiveTab('question-uploader'); setReviewedAttempt(null); setIsMobileDrawerOpen(false); }}
+                      onClick={() => { window.open(window.location.origin + '?tab=question-uploader', '_blank'); setIsMobileDrawerOpen(false); }}
                       className={`w-full flex items-center space-x-3 text-xs font-black uppercase p-3 rounded-xl border transition-all ${
                         activeTab === 'question-uploader'
                           ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400'
@@ -3340,7 +3480,10 @@ export default function Dashboard() {
                       }`}
                     >
                       <UploadCloud className="w-4 h-4 shrink-0" />
-                      <span>Question Uploader</span>
+                      <div className="flex-1 flex items-center justify-between text-left">
+                        <span>Question Uploader</span>
+                        <ExternalLink className="h-3 w-3 text-slate-450 shrink-0" />
+                      </div>
                     </button>
 
                     <button
@@ -3608,7 +3751,7 @@ export default function Dashboard() {
 
             {activeTab === 'mock-config' && !reviewedAttempt ? (
               <div className="space-y-6">
-                {assignedExam && (
+                {assignedExam && !isAssignedExamSynced && (
                   <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-slate-900 dark:to-amber-955/20 border border-amber-200 dark:border-amber-900/40 p-6 rounded-3xl shadow-sm space-y-4 animate-fade-in text-left">
                     <div className="flex items-center space-x-3">
                       <div className="bg-amber-100 dark:bg-amber-900/50 p-2.5 rounded-2xl shrink-0">
@@ -3674,6 +3817,10 @@ export default function Dashboard() {
                             currentTarget: assignedExam.dailyGoalQuestions,
                             baseTarget: assignedExam.dailyGoalQuestions
                           }));
+                          setIsAssignedExamSynced(true);
+                          if (currentUser) {
+                            localStorage.setItem(`MOCK_ASSIGNED_EXAM_SYNCED_${currentUser}`, 'true');
+                          }
                           alert("🎯 Automatically synced settings with your assigned target exam!");
                         }}
                         className="px-4 py-2 bg-amber-600 hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow hover:scale-[1.01] active:scale-95 transition-all cursor-pointer"
@@ -3940,21 +4087,14 @@ export default function Dashboard() {
                             <select 
                               value={selectedExamId}
                               onChange={(e) => setSelectedExamId(e.target.value)}
-                              disabled={currentUserSlotIndex === 1 || currentUserSlotIndex === 2 || currentUser === 'yash chaudhary' || currentUser === 'tanu chaudhary'}
-                              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-755 px-4 py-3.5 rounded-2xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-indigo-700 dark:text-indigo-300 disabled:opacity-85 disabled:cursor-not-allowed"
+                              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-755 px-4 py-3.5 rounded-2xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-indigo-700 dark:text-indigo-300"
                             >
-                              {currentUserSlotIndex === 1 || currentUserSlotIndex === 2 || currentUser === 'yash chaudhary' || currentUser === 'tanu chaudhary' ? (
-                                <option value="exam-dsssb-it" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">🏆 DSSSB IT</option>
-                              ) : (
-                                <>
-                                  <option value="custom" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">Custom Practice Quiz</option>
-                                  {examConfigs.map(config => (
-                                    <option key={config.id} value={config.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
-                                      🏆 {config.name}
-                                    </option>
-                                  ))}
-                                </>
-                              )}
+                              <option value="custom" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">Custom Practice Quiz</option>
+                              {examConfigs.map(config => (
+                                <option key={config.id} value={config.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+                                  🏆 {config.name}
+                                </option>
+                              ))}
                             </select>
                             <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500 pointer-events-none" />
                           </div>
@@ -4340,7 +4480,7 @@ export default function Dashboard() {
                         <button
                           type="button"
                           onClick={() => {
-                            setActiveTab('exam-creator');
+                            window.open(window.location.origin + '?tab=exam-creator', '_blank');
                           }}
                           className="w-full py-4 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-750 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg hover:scale-[1.01] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
                         >
@@ -4475,8 +4615,8 @@ export default function Dashboard() {
                           📚 Q-Bank Console
                         </button>
                         <button
-                          onClick={() => { setActiveTab('question-uploader'); }}
-                          className="bg-slate-50 dark:bg-slate-800 hover:bg-indigo-50/50 border border-slate-200 dark:border-slate-800 text-center py-3.5 rounded-xl text-xs font-bold text-slate-705 dark:text-slate-300 cursor-pointer"
+                          onClick={() => { window.open(window.location.origin + '?tab=question-uploader', '_blank'); }}
+                          className="bg-slate-50 dark:bg-slate-800 hover:bg-indigo-50/50 border border-slate-200 dark:border-slate-800 text-center py-3.5 rounded-xl text-xs font-bold text-slate-705 dark:text-slate-300 cursor-pointer flex items-center justify-center gap-1"
                         >
                           📤 Question Upload
                         </button>
@@ -4662,29 +4802,32 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
                   <h4 className="text-sm font-black uppercase tracking-wider text-slate-700 dark:text-slate-300">Subject-wise Download Terminal</h4>
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Filter and download questions subject-by-subject. Questions will be safely stored locally under the 4MB safeguard to keep you practicing offline!
+                    Filter and download questions subject-by-subject for the active exam (<strong className="text-indigo-600 dark:text-indigo-450">{examConfigs.find(e => e.id === activeCountdownExamId)?.name || activeCountdownExamId}</strong>). Common questions and exam-specific special subjects will sync automatically!
                   </p>
                   
                   {/* List subjects with numbers of questions in each */}
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5 my-6">
                     {(() => {
+                      const activeExam = examConfigs.find(e => e.id === activeCountdownExamId) || examConfigs[0];
+                      const filteredPool = activeExam ? filterQuestionsByExam(questions, activeExam) : questions;
+                      
                       const subCounts: Record<string, number> = {};
-                      // We compute count from the live database pool (questions) since they download from cloud
-                      questions.forEach(q => {
+                      // We compute count from the filtered pool
+                      filteredPool.forEach(q => {
                         const s = q.subject || "General";
                         subCounts[s] = (subCounts[s] || 0) + 1;
                       });
                       
                       const distinctSubjects = Object.keys(subCounts);
                       if (distinctSubjects.length === 0) {
-                        return <div className="col-span-full text-center py-4 text-xs font-bold text-slate-400 text-slate-400">Cloud database seems empty! Upload spreadsheet first to cache questions.</div>;
+                        return <div className="col-span-full text-center py-4 text-xs font-bold text-slate-400 text-slate-400 font-sans">No questions found matching this exam pattern in the cloud database! Upload questions first.</div>;
                       }
                       
                       return distinctSubjects.map(sub => {
                         const count = subCounts[sub];
                         const isChecked = selectedOfflineSubjects.includes(sub);
                         return (
-                          <label 
+                           <label 
                             key={sub}
                             className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer hover:bg-indigo-50/20 transition ${
                               isChecked 
@@ -4725,8 +4868,11 @@ export default function Dashboard() {
                           return;
                         }
 
-                        // Gather all questions matching selected subjects
-                        const matchingQuestions = questions.filter(q => 
+                        // Gather all questions matching selected subjects from the filtered pool
+                        const activeExam = examConfigs.find(e => e.id === activeCountdownExamId) || examConfigs[0];
+                        const filteredPool = activeExam ? filterQuestionsByExam(questions, activeExam) : questions;
+                        
+                        const matchingQuestions = filteredPool.filter(q => 
                           selectedOfflineSubjects.some(sub => q.subject.toLowerCase() === sub.toLowerCase())
                         );
 
@@ -5706,7 +5852,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            {activeTab === 'exam-creator' && isAdminAuthenticated && !reviewedAttempt && (
+            {activeTab === 'exam-creator' && !reviewedAttempt && (
               <div className="space-y-6 animate-fade-in text-left">
                 {/* Header card */}
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
@@ -5721,11 +5867,11 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <button 
-                      onClick={() => setActiveTab('admin')}
+                      onClick={() => setActiveTab(currentUserSlotIndex === 0 ? 'admin' : 'mock-config')}
                       className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:hover:bg-indigo-900/60 dark:text-indigo-400 rounded-xl transition-colors cursor-pointer flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 duration-150"
-                      title="Back to Admin Dashboard"
+                      title={currentUserSlotIndex === 0 ? "Back to Admin Dashboard" : "Back to Home Practice"}
                     >
-                      <ShieldCheck className="h-4.5 w-4.5" />
+                      {currentUserSlotIndex === 0 ? <ShieldCheck className="h-4.5 w-4.5" /> : <Home className="h-4.5 w-4.5" />}
                     </button>
                   </div>
                 </div>
@@ -5739,13 +5885,13 @@ export default function Dashboard() {
                     <div className="space-y-5 pt-2">
                       {/* Selector of current config mapping */}
                       <div>
-                        <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 font-sans">Select Exam Pattern to Configure</label>
+                        <label className="block text-[10px] font-black text-slate-400 dark:text-slate-505 uppercase tracking-widest mb-1.5 font-sans">Select Exam Pattern to Configure</label>
                         <select
-                          value={selectedAdminExamId}
+                           value={selectedAdminExamId}
                           onChange={(e) => setSelectedAdminExamId(e.target.value)}
                           className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold outline-none text-slate-700 dark:text-slate-300"
                         >
-                          <option value="">-- Create New Standard Pattern --</option>
+                          <option value="">-- Create New Custom Mock Pattern --</option>
                           {examConfigs.map(c => (
                             <option key={c.id} value={c.id}>{c.name} ({c.durationMinutes} minutes)</option>
                           ))}
@@ -5756,17 +5902,27 @@ export default function Dashboard() {
                         (() => {
                           const targetPattern = examConfigs.find(c => c.id === selectedAdminExamId);
                           if (!targetPattern) return null;
+                          
+                          const isPreset = ['exam-dsssb-it', 'exam-dsssb-tgt', 'exam-rpsc-eo'].includes(targetPattern.id);
+                          const canModify = !isPreset || currentUserSlotIndex === 0;
+
                           return (
                             <div className="space-y-4 animate-fade-in bg-slate-50/50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-700">
                               <div className="flex justify-between items-center pb-2.5 border-b border-slate-200 dark:border-slate-800">
-                                <span className="text-xs font-black text-slate-700 dark:text-slate-300 truncate">{targetPattern.name} Parameter Table</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteExamConfigFromDB(targetPattern.id)}
-                                  className="text-[10px] bg-red-100 hover:bg-red-200 dark:bg-red-950 text-red-500 px-3 py-1.5 rounded-lg font-bold transition cursor-pointer"
-                                >
-                                  Delete Entire Exam
-                                </button>
+                                <span className="text-xs font-black text-slate-700 dark:text-slate-300 truncate">{targetPattern.name} Parameters</span>
+                                {canModify ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteExamConfigFromDB(targetPattern.id)}
+                                    className="text-[10px] bg-red-105 hover:bg-red-200 dark:bg-red-950 text-red-500 px-3 py-1.5 rounded-lg font-bold transition cursor-pointer"
+                                  >
+                                    Delete Custom Exam Pattern
+                                  </button>
+                                ) : (
+                                  <span className="text-[9px] font-black uppercase text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-1 rounded">
+                                    🔒 LOCKED PRESET EXAM
+                                  </span>
+                                )}
                               </div>
 
                               {/* Define Total Questions / Stats Widget */}
@@ -5793,13 +5949,18 @@ export default function Dashboard() {
                                   <input 
                                     type="number"
                                     value={targetPattern.durationMinutes || 60}
+                                    disabled={!canModify}
                                     onChange={(e) => {
                                       const updated = { ...targetPattern, durationMinutes: Math.max(1, parseInt(e.target.value) || 0) };
                                       const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
                                       setExamConfigs(nextConfigs);
                                       handleUpdateExamConfigOnDB(updated);
                                     }}
-                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                    className={`w-full border px-3 py-2 rounded-xl text-xs font-bold outline-none ${
+                                      !canModify 
+                                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 cursor-not-allowed' 
+                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white'
+                                    }`}
                                   />
                                 </div>
 
@@ -5810,13 +5971,18 @@ export default function Dashboard() {
                                     type="number"
                                     step="0.1"
                                     value={targetPattern.correctAnswerMarks ?? 4}
+                                    disabled={!canModify}
                                     onChange={(e) => {
                                       const updated = { ...targetPattern, correctAnswerMarks: parseFloat(e.target.value) || 0 };
                                       const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
                                       setExamConfigs(nextConfigs);
                                       handleUpdateExamConfigOnDB(updated);
                                     }}
-                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                    className={`w-full border px-3 py-2 rounded-xl text-xs font-bold outline-none ${
+                                      !canModify 
+                                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 cursor-not-allowed' 
+                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white'
+                                    }`}
                                   />
                                 </div>
 
@@ -5827,13 +5993,18 @@ export default function Dashboard() {
                                     type="number"
                                     step="0.01"
                                     value={targetPattern.negativeMarking ?? -1}
+                                    disabled={!canModify}
                                     onChange={(e) => {
                                       const updated = { ...targetPattern, negativeMarking: parseFloat(e.target.value) || 0 };
                                       const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
                                       setExamConfigs(nextConfigs);
                                       handleUpdateExamConfigOnDB(updated);
                                     }}
-                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                    className={`w-full border px-3 py-2 rounded-xl text-xs font-bold outline-none ${
+                                      !canModify 
+                                        ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 cursor-not-allowed' 
+                                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white'
+                                    }`}
                                   />
                                 </div>
                               </div>
@@ -5847,6 +6018,7 @@ export default function Dashboard() {
                                     const matchingCounter = examCounters.find(cnt => cnt.id === targetPattern.id);
                                     return matchingCounter ? matchingCounter.targetDate : "2026-05-04";
                                   })()}
+                                  disabled={!canModify}
                                   onChange={async (e) => {
                                     const nextDate = e.target.value;
                                     const updatedCounters = examCounters.map(cnt => cnt.id === targetPattern.id ? { ...cnt, targetDate: nextDate } : cnt);
@@ -5867,7 +6039,11 @@ export default function Dashboard() {
                                       }
                                     }
                                   }}
-                                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                  className={`w-full border px-3 py-2 rounded-xl text-xs font-bold outline-none ${
+                                    !canModify 
+                                      ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 border-slate-200 cursor-not-allowed' 
+                                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white'
+                                  }`}
                                 />
                               </div>
 
@@ -5882,6 +6058,7 @@ export default function Dashboard() {
                                         <input 
                                           type="number"
                                           value={targetPattern.subjectDistribution[subjKey] || 0}
+                                          disabled={!canModify}
                                           onChange={(e) => {
                                             const updatedDist = { ...targetPattern.subjectDistribution, [subjKey]: Math.max(0, parseInt(e.target.value) || 0) };
                                             const updated = { ...targetPattern, subjectDistribution: updatedDist };
@@ -5889,13 +6066,82 @@ export default function Dashboard() {
                                             setExamConfigs(nextConfigs);
                                             handleUpdateExamConfigOnDB(updated);
                                           }}
-                                          className="w-16 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1.5 rounded-lg text-xs font-bold text-center"
+                                          className={`w-16 border px-2 py-1.5 rounded-lg text-xs font-bold text-center ${
+                                            !canModify 
+                                              ? 'bg-slate-100 dark:bg-slate-800 text-slate-450' 
+                                              : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100'
+                                          }`}
                                         />
-                                        <span className="text-[10px] text-slate-400 font-bold uppercase">QA</span>
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase mr-1">QA</span>
+                                        {canModify && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const updatedDist = { ...targetPattern.subjectDistribution };
+                                              delete updatedDist[subjKey];
+                                              const updated = { ...targetPattern, subjectDistribution: updatedDist };
+                                              const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
+                                              setExamConfigs(nextConfigs);
+                                              handleUpdateExamConfigOnDB(updated);
+                                            }}
+                                            className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                                            title={`Remove ${subjKey} from layout`}
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
                                       </div>
                                     </div>
                                   ))}
                                 </div>
+
+                                {canModify && (
+                                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+                                    <span className="block text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest font-sans">Add Custom Subject to Blueprint</span>
+                                    <div className="flex items-center space-x-2">
+                                      <input
+                                        type="text"
+                                        id="new-subject-input"
+                                        placeholder="e.g., Computer Science, Math"
+                                        className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            const val = e.currentTarget.value.trim();
+                                            if (val) {
+                                              const updatedDist = { ...targetPattern.subjectDistribution, [val]: 10 };
+                                              const updated = { ...targetPattern, subjectDistribution: updatedDist };
+                                              const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
+                                              setExamConfigs(nextConfigs);
+                                              handleUpdateExamConfigOnDB(updated);
+                                              e.currentTarget.value = "";
+                                            }
+                                          }
+                                        }}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const input = document.getElementById('new-subject-input') as HTMLInputElement;
+                                          const val = input ? input.value.trim() : "";
+                                          if (val) {
+                                            const updatedDist = { ...targetPattern.subjectDistribution, [val]: 10 };
+                                            const updated = { ...targetPattern, subjectDistribution: updatedDist };
+                                            const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
+                                            setExamConfigs(nextConfigs);
+                                            handleUpdateExamConfigOnDB(updated);
+                                            input.value = "";
+                                          } else {
+                                            alert("Please enter a valid subject name!");
+                                          }
+                                        }}
+                                        className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold font-sans transition cursor-pointer"
+                                      >
+                                        Add Subject
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );

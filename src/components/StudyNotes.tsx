@@ -26,6 +26,7 @@ import {
 import { 
   collection, 
   getDocs, 
+  getDoc,
   addDoc, 
   setDoc, 
   deleteDoc, 
@@ -304,7 +305,7 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
 
   // Fetch Notes Real-time from Firestore
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "study_notes"), (snapshot) => {
+    const unsubscribe = onSnapshot(collection(db, "study_notes"), async (snapshot) => {
       const loadedNotes: StudyNote[] = [];
       snapshot.forEach(docSnap => {
         loadedNotes.push({
@@ -314,9 +315,34 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
       });
       setNotes(loadedNotes);
 
-      // Trigger automatic seeding if collection is completely empty
+      // Trigger automatic seeding using a coordinated DB metadata flag to prevent infinite local re-uploads
       if (loadedNotes.length === 0 && !isSeeding) {
-        triggerSeeding();
+        try {
+          const sysDocRef = doc(db, "db_metadata", "system");
+          const sysDoc = await getDoc(sysDocRef);
+          const sysData = sysDoc.exists() ? sysDoc.data() : null;
+          
+          if (!sysData || !sysData.notesSeeded) {
+            console.log("Notes collection is empty and has not been seeded yet. Triggering initial notes seeding...");
+            setIsSeeding(true);
+            for (const note of SEED_NOTES) {
+              await setDoc(doc(db, "study_notes", note.id), {
+                examId: note.examId,
+                subject: note.subject,
+                topic: note.topic,
+                contentType: note.contentType,
+                content: note.content,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              });
+            }
+            // Mark as seeded in Firestore to prevent other browsers from ever re-seeding if admin clears the list
+            await setDoc(sysDocRef, { notesSeeded: true }, { merge: true });
+            setIsSeeding(false);
+          }
+        } catch (e) {
+          console.warn("Could not check metadata or seed notes:", e);
+        }
       }
     }, (err) => {
       console.warn("Failed to sync study notes:", err);
@@ -327,6 +353,7 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
 
   const triggerSeeding = async () => {
     setIsSeeding(true);
+    localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
     try {
       for (const note of SEED_NOTES) {
         await setDoc(doc(db, "study_notes", note.id), {
