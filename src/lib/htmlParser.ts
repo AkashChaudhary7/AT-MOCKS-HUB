@@ -585,9 +585,28 @@ export async function parseUniversalHTML(htmlString: string, targetExam: string)
             }
             while (options.length < 4) options.push(`Option ${options.length + 1}`);
             let correctIdx = 0;
-            if (q.answer) {
+            if (q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
+              correctIdx = Number(q.correctAnswerIndex);
+            } else if (q.answerIndex !== undefined && q.answerIndex !== null) {
+              correctIdx = Number(q.answerIndex);
+            } else if (q.answer !== undefined && q.answer !== null) {
               const ansVal = Number(q.answer);
               if (!isNaN(ansVal) && ansVal >= 1 && ansVal <= options.length) correctIdx = ansVal - 1;
+              else if (!isNaN(ansVal) && ansVal === 0) correctIdx = 0;
+              else if (typeof q.answer === 'string') {
+                const char = q.answer.trim().toUpperCase();
+                if (char === 'A') correctIdx = 0;
+                else if (char === 'B') correctIdx = 1;
+                else if (char === 'C') correctIdx = 2;
+                else if (char === 'D') correctIdx = 3;
+                else {
+                  const oIdx = options.findIndex(o => o.toLowerCase() === q.answer.toLowerCase());
+                  if (oIdx !== -1) correctIdx = oIdx;
+                }
+              }
+            }
+            if (isNaN(correctIdx) || correctIdx < 0 || correctIdx >= Math.max(1, options.length)) {
+              correctIdx = 0;
             }
             const qText = stripHtmlToText(q.question || q.text || "");
             const expText = stripHtmlToText(q.solution || q.explanation || q.solution_text || "No explanation provided.");
@@ -643,9 +662,28 @@ export async function parseUniversalHTML(htmlString: string, targetExam: string)
             }
             while (options.length < 4) options.push(`Option ${options.length + 1}`);
             let correctIdx = 0;
-            if (q.answer) {
+            if (q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
+              correctIdx = Number(q.correctAnswerIndex);
+            } else if (q.answerIndex !== undefined && q.answerIndex !== null) {
+              correctIdx = Number(q.answerIndex);
+            } else if (q.answer !== undefined && q.answer !== null) {
               const ansVal = Number(q.answer);
               if (!isNaN(ansVal) && ansVal >= 1 && ansVal <= options.length) correctIdx = ansVal - 1;
+              else if (!isNaN(ansVal) && ansVal === 0) correctIdx = 0;
+              else if (typeof q.answer === 'string') {
+                const char = q.answer.trim().toUpperCase();
+                if (char === 'A') correctIdx = 0;
+                else if (char === 'B') correctIdx = 1;
+                else if (char === 'C') correctIdx = 2;
+                else if (char === 'D') correctIdx = 3;
+                else {
+                  const oIdx = options.findIndex(o => o.toLowerCase() === q.answer.toLowerCase());
+                  if (oIdx !== -1) correctIdx = oIdx;
+                }
+              }
+            }
+            if (isNaN(correctIdx) || correctIdx < 0 || correctIdx >= Math.max(1, options.length)) {
+              correctIdx = 0;
             }
             return {
               id: `json-${Date.now()}-${i}-${Math.random().toString(36).substring(4)}`,
@@ -1044,18 +1082,25 @@ export function parseJSONQuestions(text: string, defaultSubject: string, default
       }
       
       let correctIdx = 0;
-      if (typeof item.correctAnswerIndex === 'number') {
-        correctIdx = item.correctAnswerIndex;
-      } else if (typeof item.correctAnswer === 'number') {
-        correctIdx = item.correctAnswer;
-      } else if (typeof item.answerIndex === 'number') {
-        correctIdx = item.answerIndex;
+      if (item.correctAnswerIndex !== undefined && item.correctAnswerIndex !== null) {
+        correctIdx = Number(item.correctAnswerIndex);
+      } else if (item.correctAnswer !== undefined && typeof item.correctAnswer === 'number') {
+        correctIdx = Number(item.correctAnswer);
+      } else if (item.answerIndex !== undefined && item.answerIndex !== null) {
+        correctIdx = Number(item.answerIndex);
       } else if (typeof item.answer === 'string') {
         const char = item.answer.trim().toUpperCase();
         if (char === 'A' || char === '1') correctIdx = 0;
         else if (char === 'B' || char === '2') correctIdx = 1;
         else if (char === 'C' || char === '3') correctIdx = 2;
         else if (char === 'D' || char === '4') correctIdx = 3;
+      } else if (typeof item.correctAnswer === 'string') {
+        const idx = options.findIndex(o => o.toLowerCase() === item.correctAnswer.toLowerCase());
+        if (idx !== -1) correctIdx = idx;
+      }
+      
+      if (isNaN(correctIdx) || correctIdx < 0 || correctIdx >= Math.max(1, options.length)) {
+        correctIdx = 0;
       }
 
       return {

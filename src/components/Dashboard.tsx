@@ -1967,8 +1967,46 @@ export default function Dashboard() {
          return tagA.localeCompare(tagB);
       });
       
-      const chunkSize = 50; // Bundles of exactly 50 questions to prevent Firestore 1MB document payload limits on large uploads
-      const chunksCount = Math.ceil(sortedList.length / chunkSize);
+      const MAX_BYTES = 1048576 * 0.95; // 95% of 1MB to be safe
+      const cleanQuestions = sortedList.map(q => ({
+        id: q.id,
+        questionText: q.questionText || "",
+        options: Array.isArray(q.options) ? q.options : [],
+        correctAnswerIndex: q.correctAnswerIndex !== undefined ? q.correctAnswerIndex : 0,
+        explanation: q.explanation || "",
+        subject: q.subject || "General Studies",
+        targetExam: q.targetExam || "",
+        updatedAt: q.updatedAt || "",
+        createdAt: q.createdAt || ""
+      }));
+
+      const chunksData: { questions: any[], tags: string[] }[] = [];
+      let currentChunkQuestions: any[] = [];
+      let currentTags = new Set<string>();
+      let currentChunkSize = 0;
+
+      for (let i = 0; i < cleanQuestions.length; i++) {
+        const q = cleanQuestions[i];
+        // Estimate size of this question
+        const qSize = new Blob([JSON.stringify(q)]).size + 2; // +2 for commas in JSON array
+        
+        if (currentChunkSize + qSize > MAX_BYTES && currentChunkQuestions.length > 0) {
+          chunksData.push({ questions: currentChunkQuestions, tags: Array.from(currentTags) });
+          currentChunkQuestions = [];
+          currentTags = new Set<string>();
+          currentChunkSize = 0;
+        }
+
+        currentChunkQuestions.push(q);
+        if (q.targetExam) currentTags.add(q.targetExam.toLowerCase().trim());
+        if (q.subject) currentTags.add(q.subject.toLowerCase().trim());
+        currentChunkSize += qSize;
+      }
+      if (currentChunkQuestions.length > 0) {
+        chunksData.push({ questions: currentChunkQuestions, tags: Array.from(currentTags) });
+      }
+
+      const chunksCount = chunksData.length;
       
       // Get previous chunk count to clean up any obsolete ones
       let previousChunkCount = 0;
@@ -1982,43 +2020,24 @@ export default function Dashboard() {
       }
 
       let completedChunks = 0;
+      let completedQuestions = 0;
       const promises = [];
 
       for (let i = 0; i < chunksCount; i++) {
-        const start = i * chunkSize;
-        const slice = sortedList.slice(start, start + chunkSize);
-        
-        const cleanSlice = slice.map(q => ({
-          id: q.id,
-          questionText: q.questionText || "",
-          options: Array.isArray(q.options) ? q.options : [],
-          correctAnswerIndex: q.correctAnswerIndex !== undefined ? q.correctAnswerIndex : 0,
-          explanation: q.explanation || "",
-          subject: q.subject || "General Studies",
-          targetExam: q.targetExam || "",
-          updatedAt: q.updatedAt || "",
-          createdAt: q.createdAt || ""
-        }));
-        
-        const tags = new Set<string>();
-        slice.forEach(q => {
-           if (q.targetExam) tags.add(q.targetExam.toLowerCase().trim());
-           if (q.subject) tags.add(q.subject.toLowerCase().trim());
-        });
-
+        const chunk = chunksData[i];
         const uploadTask = (async () => {
           await setDoc(doc(db, "questions_chunks", `chunk_${i}`), {
-            questions: cleanSlice,
+            questions: chunk.questions,
             updatedAt: new Date().toISOString(),
             index: i,
-            count: cleanSlice.length,
-            examTags: Array.from(tags)
+            count: chunk.questions.length,
+            examTags: chunk.tags
           });
           trackFirestoreWrite(1);
           completedChunks++;
+          completedQuestions += chunk.questions.length;
           if (onProgress) {
-            const currentUploaded = Math.min(completedChunks * chunkSize, sortedList.length);
-            onProgress(currentUploaded, sortedList.length, completedChunks, chunksCount);
+            onProgress(completedQuestions, sortedList.length, completedChunks, chunksCount);
           }
         })();
         promises.push(uploadTask);
