@@ -6231,40 +6231,41 @@ export default function Dashboard() {
                                   <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
                                     <span className="block text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest font-sans">Add Custom Subject to Blueprint</span>
                                     <div className="flex items-center space-x-2">
-                                      <input
-                                        type="text"
-                                        id="new-subject-input"
-                                        placeholder="e.g., Computer Science, Math"
+                                      <select
+                                        id={`new-subject-select-${targetPattern.id}`}
+                                        defaultValue=""
                                         className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
-                                            e.preventDefault();
-                                            const val = e.currentTarget.value.trim();
-                                            if (val) {
-                                              const updatedDist = { ...targetPattern.subjectDistribution, [val]: 10 };
-                                              const updated = { ...targetPattern, subjectDistribution: updatedDist };
-                                              const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
-                                              setExamConfigs(nextConfigs);
-                                              handleUpdateExamConfigOnDB(updated);
-                                              e.currentTarget.value = "";
-                                            }
-                                          }
-                                        }}
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const input = document.getElementById('new-subject-input') as HTMLInputElement;
-                                          const val = input ? input.value.trim() : "";
+                                        onChange={(e) => {
+                                          const val = e.target.value;
                                           if (val) {
                                             const updatedDist = { ...targetPattern.subjectDistribution, [val]: 10 };
                                             const updated = { ...targetPattern, subjectDistribution: updatedDist };
                                             const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
                                             setExamConfigs(nextConfigs);
                                             handleUpdateExamConfigOnDB(updated);
-                                            input.value = "";
+                                            e.target.value = "";
+                                          }
+                                        }}
+                                      >
+                                        <option value="" disabled>-- Select Subject --</option>
+                                        {subjectTagsList.filter(s => !targetPattern.subjectDistribution[s]).map(tag => (
+                                          <option key={tag} value={tag}>{tag}</option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const select = document.getElementById(`new-subject-select-${targetPattern.id}`) as HTMLSelectElement;
+                                          const val = select ? select.value : "";
+                                          if (val) {
+                                            const updatedDist = { ...targetPattern.subjectDistribution, [val]: 10 };
+                                            const updated = { ...targetPattern, subjectDistribution: updatedDist };
+                                            const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
+                                            setExamConfigs(nextConfigs);
+                                            handleUpdateExamConfigOnDB(updated);
+                                            select.value = "";
                                           } else {
-                                            alert("Please enter a valid subject name!");
+                                            alert("Please select a valid subject!");
                                           }
                                         }}
                                         className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold font-sans transition cursor-pointer"
