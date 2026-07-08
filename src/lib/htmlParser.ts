@@ -536,13 +536,20 @@ function findMatchingOptionIndex(options: string[], answerText: string): number 
     if (idx !== -1) return idx;
   }
   
-  // 3. Fallback to basic character keys
+  // 3. Fallback to basic character keys using regex for "Option C", "C.", etc.
   const char = answerText.trim().toUpperCase();
-  if (char === 'A' || char === '1' || char === 'अ' || char === 'क') return 0;
-  if (char === 'B' || char === '2' || char === 'ब' || char === 'ख') return 1;
-  if (char === 'C' || char === '3' || char === 'स' || char === 'ग') return 2;
-  if (char === 'D' || char === '4' || char === 'द' || char === 'घ') return 3;
-  if (char === 'E' || char === '5' || char === 'य' || char === 'ङ') return 4;
+  const regexMatch = char.match(/^(?:OPTION\s*|OPT\s*|CHOICE\s*)?([A-E1-5अ-ङक-घ])[\.\)]*$/i);
+  
+  let valToMatch = char;
+  if (regexMatch) {
+     valToMatch = regexMatch[1].toUpperCase();
+  }
+
+  if (valToMatch === 'A' || valToMatch === '1' || valToMatch === 'अ' || valToMatch === 'क') return 0;
+  if (valToMatch === 'B' || valToMatch === '2' || valToMatch === 'ब' || valToMatch === 'ख') return 1;
+  if (valToMatch === 'C' || valToMatch === '3' || valToMatch === 'स' || valToMatch === 'ग') return 2;
+  if (valToMatch === 'D' || valToMatch === '4' || valToMatch === 'द' || valToMatch === 'घ') return 3;
+  if (valToMatch === 'E' || valToMatch === '5' || valToMatch === 'य' || valToMatch === 'ङ') return 4;
 
   return -1;
 }
