@@ -3,11 +3,15 @@ import { ChevronDown, Sliders, Layers, Clock } from 'lucide-react';
 interface MockBuilderProps {
   availableTargetExams: string[];
   availableSubjects: string[];
+  availableTopics: string[];
   subjectQuestionCounts: Record<string, number>;
+  topicQuestionCounts: Record<string, number>;
   quizTargetExam: string;
   setQuizTargetExam: (val: string) => void;
   quizSubject: string;
   setQuizSubject: (val: string) => void;
+  quizTopic: string;
+  setQuizTopic: (val: string) => void;
   quizCount: number;
   setQuizCount: (val: number) => void;
   timerMinutes: number;
@@ -17,11 +21,15 @@ interface MockBuilderProps {
 export function MockBuilder({
   availableTargetExams,
   availableSubjects,
+  availableTopics,
   subjectQuestionCounts,
+  topicQuestionCounts,
   quizTargetExam,
   setQuizTargetExam,
   quizSubject,
   setQuizSubject,
+  quizTopic,
+  setQuizTopic,
   quizCount,
   setQuizCount,
   timerMinutes,
@@ -34,7 +42,7 @@ export function MockBuilder({
         <h4 className="text-xs font-black uppercase text-indigo-950 dark:text-indigo-250 tracking-wider">Custom Exam Builder</h4>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Practice Custom Exam Tag */}
         <div>
           <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Practice Custom Exam Tag</label>
@@ -44,7 +52,7 @@ export function MockBuilder({
               onChange={(e) => setQuizTargetExam(e.target.value)}
               className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-550/20 text-slate-800 dark:text-slate-100"
             >
-              <option value="All Tag Sets" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">All Tag Sets (Sourced from Uploader)</option>
+              <option value="All Tag Sets" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">All Tag Sets</option>
               {availableTargetExams.map(tag => (
                 <option key={tag} value={tag} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">{tag}</option>
               ))}
@@ -59,13 +67,36 @@ export function MockBuilder({
           <div className="relative">
             <select 
               value={quizSubject}
-              onChange={(e) => setQuizSubject(e.target.value)}
+              onChange={(e) => {
+                setQuizSubject(e.target.value);
+                setQuizTopic("All Topics");
+              }}
               className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-755 px-4 py-3 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-550/20 text-slate-800 dark:text-slate-100"
             >
-              <option className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">All Subjects</option>
+              <option value="All Subjects" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">All Subjects</option>
               {availableSubjects.map(sub => (
                 <option key={sub} value={sub} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
-                  {sub} ({subjectQuestionCounts[sub] || 0} Qs)
+                  {sub} ({subjectQuestionCounts[sub] || 0})
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+          </div>
+        </div>
+
+        {/* Practice Topic */}
+        <div>
+          <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Practice Topic</label>
+          <div className="relative">
+            <select 
+              value={quizTopic}
+              onChange={(e) => setQuizTopic(e.target.value)}
+              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-755 px-4 py-3 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-550/20 text-slate-800 dark:text-slate-100"
+            >
+              <option value="All Topics" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">All Topics</option>
+              {availableTopics.map(topic => (
+                <option key={topic} value={topic} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">
+                  {topic} ({topicQuestionCounts[topic] || 0})
                 </option>
               ))}
             </select>

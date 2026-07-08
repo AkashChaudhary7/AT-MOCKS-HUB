@@ -82,7 +82,7 @@ import {
   User,
   Users,
   LogOut,
-  ExternalLink, Heart, Download,
+  ExternalLink, Heart, Download, Layers,
 } from 'lucide-react';
 import { Question, TestAttempt, QuizSettings, ExamCounter, DailyGoal, ExamConfig } from '../types';
 import MockTestInterface from './MockTestInterface';
@@ -1434,6 +1434,7 @@ export default function Dashboard() {
   const [newExplanation, setNewExplanation] = useState("");
 
   const [quizSubject, setQuizSubject] = useState<string>("All Subjects");
+  const [quizTopic, setQuizTopic] = useState<string>("All Topics");
   const [quizTargetExam, setQuizTargetExam] = useState<string>("All Tag Sets");
   const [stagingTargetExam, setStagingTargetExam] = useState<string>("");
   const [quizCount, setQuizCount] = useState<number>(5);
@@ -1443,6 +1444,7 @@ export default function Dashboard() {
   const [activeQuizQuestions, setActiveQuizQuestions] = useState<Question[] | null>(null);
   const [activeQuizSettings, setActiveQuizSettings] = useState<QuizSettings | null>(null);
   const [reviewedAttempt, setReviewedAttempt] = useState<TestAttempt | null>(null);
+  const [uploadMode, setUploadMode] = useState<'standard' | 'pyq'>('standard');
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
 
@@ -2236,22 +2238,31 @@ export default function Dashboard() {
             let parsed: Question[] = [];
             
             if (file.name.toLowerCase().endsWith('.json')) {
-              parsed = parseJSONQuestions(text, stagingSubject, stagingTargetExam);
+              parsed = parseJSONQuestions(text, uploadMode === 'standard' ? stagingSubject : 'General', uploadMode === 'pyq' ? stagingTargetExam : undefined);
             } else if (file.name.toLowerCase().endsWith('.txt')) {
-              parsed = parseTXTQuestions(text, stagingSubject, stagingTargetExam);
+              parsed = parseTXTQuestions(text, uploadMode === 'standard' ? stagingSubject : 'General', uploadMode === 'pyq' ? stagingTargetExam : undefined);
             } else {
-              parsed = await parseUniversalHTML(text, stagingSubject);
+              parsed = await parseUniversalHTML(text, uploadMode === 'standard' ? stagingSubject : 'General');
             }
 
             if (parsed.length > 0) {
                 parsed.forEach(q => {
-                  if (stagingSubject && stagingSubject !== "Choose Subject") {
-                    q.subject = stagingSubject;
+                  if (uploadMode === 'standard') {
+                    if (stagingSubject && stagingSubject !== "Choose Subject") {
+                      q.subject = stagingSubject;
+                    }
+                    if (stagingTopic && stagingTopic.trim()) {
+                      q.topic = stagingTopic.trim();
+                    }
+                  } else {
+                    // For PYQ mode, if subject is missing, default to General.
+                    if (!q.subject) {
+                       q.subject = "General";
+                    }
                   }
-                  if (stagingTopic && stagingTopic.trim()) {
-                    q.topic = stagingTopic.trim();
-                  }
-                  if (stagingTargetExam && stagingTargetExam.trim()) {
+                  
+                  // In PYQ mode, stagingTargetExam must be applied
+                  if (uploadMode === 'pyq' && stagingTargetExam && stagingTargetExam.trim()) {
                     q.targetExam = stagingTargetExam.trim();
                   }
                 });
@@ -2277,6 +2288,13 @@ export default function Dashboard() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     if (!files.length) return;
+    
+    if (uploadMode === 'pyq' && !stagingTargetExam) {
+      alert("Please select a Target Exam for this PYQ before uploading.");
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    
     if (fileInputRef.current) fileInputRef.current.value = '';
     processFiles(files);
   };
@@ -2297,6 +2315,12 @@ export default function Dashboard() {
       setUploadError("Please drop valid HTML, JSON, or TXT files.");
       return;
     }
+    
+    if (uploadMode === 'pyq' && !stagingTargetExam) {
+      alert("Please select a Target Exam for this PYQ before dropping files.");
+      return;
+    }
+    
     processFiles(files);
   };
 
@@ -2499,6 +2523,10 @@ export default function Dashboard() {
       if (quizSubject && quizSubject !== "All Subjects") {
         const lowerSub = quizSubject.toLowerCase().trim();
         eligible = eligible.filter(q => q.subject && q.subject.toLowerCase().trim() === lowerSub);
+      }
+      if (quizTopic && quizTopic !== "All Topics") {
+        const lowerTop = quizTopic.toLowerCase().trim();
+        eligible = eligible.filter(q => q.topic && q.topic.toLowerCase().trim() === lowerTop);
       }
 
       if (eligible.length === 0) {
@@ -3103,6 +3131,26 @@ export default function Dashboard() {
     });
     return counts;
   }, [activeQuestionsPoolForListing]);
+
+  const topicQuestionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    activeQuestionsPoolForListing.forEach(q => {
+      if ((quizSubject === "All Subjects" || q.subject === quizSubject) && q.topic) {
+        counts[q.topic] = (counts[q.topic] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [activeQuestionsPoolForListing, quizSubject]);
+
+  const availableTopics = useMemo(() => {
+    const list = new Set<string>();
+    activeQuestionsPoolForListing.forEach(q => {
+      if ((quizSubject === "All Subjects" || q.subject === quizSubject) && q.topic) {
+        list.add(q.topic);
+      }
+    });
+    return Array.from(list).sort();
+  }, [activeQuestionsPoolForListing, quizSubject]);
 
   const availableSubjects = useMemo(() => {
     const list = new Set<string>();
@@ -4166,11 +4214,15 @@ export default function Dashboard() {
                           <MockBuilder 
                             availableTargetExams={availableTargetExams}
                             availableSubjects={availableSubjects}
+                            availableTopics={availableTopics}
                             subjectQuestionCounts={subjectQuestionCounts}
+                            topicQuestionCounts={topicQuestionCounts}
                             quizTargetExam={quizTargetExam}
                             setQuizTargetExam={setQuizTargetExam}
                             quizSubject={quizSubject}
                             setQuizSubject={setQuizSubject}
+                            quizTopic={quizTopic}
+                            setQuizTopic={setQuizTopic}
                             quizCount={quizCount}
                             setQuizCount={setQuizCount}
                             timerMinutes={timerMinutes}
@@ -6318,6 +6370,32 @@ export default function Dashboard() {
                       Drag and drop your HTML mock exams, structured JSON lists, or plain text TXT files. Our resilient parsing engine will instantly extract questions, options, and keys into format-ready banks.
                     </p>
 
+                    {/* Upload Mode Selector */}
+                    <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl max-w-md border border-slate-200/50 dark:border-slate-800 mb-4">
+                      <button
+                        onClick={() => setUploadMode('standard')}
+                        className={`flex-1 py-3 text-center rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+                          uploadMode === 'standard'
+                            ? 'bg-white dark:bg-slate-900 text-indigo-650 dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800/80'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'
+                        }`}
+                      >
+                        <Layers className="w-4 h-4 text-indigo-500" />
+                        <span>Question Bank</span>
+                      </button>
+                      <button
+                        onClick={() => setUploadMode('pyq')}
+                        className={`flex-1 py-3 text-center rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center space-x-2 cursor-pointer ${
+                          uploadMode === 'pyq'
+                            ? 'bg-white dark:bg-slate-900 text-amber-650 dark:text-amber-400 shadow-sm border border-slate-100 dark:border-slate-800/80'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'
+                        }`}
+                      >
+                        <Award className="w-4 h-4 text-amber-500" />
+                        <span>PYQ Paper</span>
+                      </button>
+                    </div>
+
                     <div 
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
@@ -6371,130 +6449,136 @@ export default function Dashboard() {
                     )}
 
                     {/* Dynamic / Persistent Target Subject Selector Dropdown Module */}
-                    <div className="pt-4 space-y-3">
-                      <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1 uppercase font-display">Target Subject Tag (Fixed Selection)</label>
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                         <div className="relative flex-1">
-                           <select
-                             value={stagingSubject}
-                             onChange={(e) => handleUpdateStagingSubject(e.target.value)}
-                             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3.5 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100"
-                           >
-                             {subjectTagsList.map((tag) => (
-                               <option key={tag} value={tag} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">{tag}</option>
-                             ))}
-                           </select>
-                           <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                         </div>
-                         <div className="flex items-center gap-2 flex-1">
-                           <input
-                             type="text"
-                             placeholder="Enter new custom tag..."
-                             id="bulk-custom-tag-input"
-                             className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
-                             onKeyDown={async (e) => {
-                               if (e.key === 'Enter') {
-                                 e.preventDefault();
-                                 const targetValue = (e.currentTarget as HTMLInputElement).value.trim();
-                                 if (!targetValue) return;
-                                 if (subjectTagsList.includes(targetValue)) {
-                                   handleUpdateStagingSubject(targetValue);
-                                   (e.currentTarget as HTMLInputElement).value = "";
-                                   return;
-                                 }
-                                 const updatedTags = [...subjectTagsList, targetValue];
-                                 setSubjectTagsList(updatedTags);
-                                 safeLocalStorageSetItem('MOCK_SUBJECT_TAGS', JSON.stringify(updatedTags));
-                                 handleUpdateStagingSubject(targetValue);
-                                 (e.currentTarget as HTMLInputElement).value = "";
-                                 if (isOnline) {
-                                   try {
-                                     await setDoc(doc(db, "db_metadata", "subject_tags"), {
-                                       tags: updatedTags,
-                                       updatedAt: new Date().toISOString()
-                                     });
-                                     trackFirestoreWrite(1);
-                                   } catch (err) {
-                                     console.error("Failed to sync tags:", err);
+                    {uploadMode === 'standard' && (
+                      <>
+                        <div className="pt-4 space-y-3 animate-fade-in">
+                          <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1 uppercase font-display">Target Subject Tag (Fixed Selection)</label>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                             <div className="relative flex-1">
+                               <select
+                                 value={stagingSubject}
+                                 onChange={(e) => handleUpdateStagingSubject(e.target.value)}
+                                 className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3.5 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100"
+                               >
+                                 {subjectTagsList.map((tag) => (
+                                   <option key={tag} value={tag} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">{tag}</option>
+                                 ))}
+                               </select>
+                               <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                             </div>
+                             <div className="flex items-center gap-2 flex-1">
+                               <input
+                                 type="text"
+                                 placeholder="Enter new custom tag..."
+                                 id="bulk-custom-tag-input"
+                                 className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                                 onKeyDown={async (e) => {
+                                   if (e.key === 'Enter') {
+                                     e.preventDefault();
+                                     const targetValue = (e.currentTarget as HTMLInputElement).value.trim();
+                                     if (!targetValue) return;
+                                     if (subjectTagsList.includes(targetValue)) {
+                                       handleUpdateStagingSubject(targetValue);
+                                       (e.currentTarget as HTMLInputElement).value = "";
+                                       return;
+                                     }
+                                     const updatedTags = [...subjectTagsList, targetValue];
+                                     setSubjectTagsList(updatedTags);
+                                     safeLocalStorageSetItem('MOCK_SUBJECT_TAGS', JSON.stringify(updatedTags));
+                                     handleUpdateStagingSubject(targetValue);
+                                     (e.currentTarget as HTMLInputElement).value = "";
+                                     if (isOnline) {
+                                       try {
+                                         await setDoc(doc(db, "db_metadata", "subject_tags"), {
+                                           tags: updatedTags,
+                                           updatedAt: new Date().toISOString()
+                                         });
+                                         trackFirestoreWrite(1);
+                                       } catch (err) {
+                                         console.error("Failed to sync tags:", err);
+                                       }
+                                     }
                                    }
-                                 }
-                               }
-                             }}
-                           />
-                           <button
-                             type="button"
-                             onClick={async () => {
-                               const el = document.getElementById('bulk-custom-tag-input') as HTMLInputElement;
-                               const targetValue = el ? el.value.trim() : "";
-                               if (!targetValue) return;
-                               if (subjectTagsList.includes(targetValue)) {
-                                 handleUpdateStagingSubject(targetValue);
-                                 el.value = "";
-                                 return;
-                               }
-                               const updatedTags = [...subjectTagsList, targetValue];
-                               setSubjectTagsList(updatedTags);
-                               safeLocalStorageSetItem('MOCK_SUBJECT_TAGS', JSON.stringify(updatedTags));
-                               handleUpdateStagingSubject(targetValue);
-                               el.value = "";
-                               if (isOnline) {
-                                 try {
-                                   await setDoc(doc(db, "db_metadata", "subject_tags"), {
-                                     tags: updatedTags,
-                                     updatedAt: new Date().toISOString()
-                                   });
-                                   trackFirestoreWrite(1);
-                                 } catch (err) {
-                                   console.error("Failed to sync tags:", err);
-                                 }
-                               }
-                             }}
-                             className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shrink-0 uppercase tracking-wider font-sans shadow-md"
-                           >
-                             + Append Tag
-                           </button>
-                         </div>
-                      </div>
-                      <p className="text-[10px] text-slate-400">
-                        These files will map to <strong className="text-indigo-500 font-bold">{stagingSubject}</strong>. (Type in the box above and hit Enter or click Append to create new tags dynamically).
-                      </p>
-                    </div>
+                                 }}
+                               />
+                               <button
+                                 type="button"
+                                 onClick={async () => {
+                                   const el = document.getElementById('bulk-custom-tag-input') as HTMLInputElement;
+                                   const targetValue = el ? el.value.trim() : "";
+                                   if (!targetValue) return;
+                                   if (subjectTagsList.includes(targetValue)) {
+                                     handleUpdateStagingSubject(targetValue);
+                                     el.value = "";
+                                     return;
+                                   }
+                                   const updatedTags = [...subjectTagsList, targetValue];
+                                   setSubjectTagsList(updatedTags);
+                                   safeLocalStorageSetItem('MOCK_SUBJECT_TAGS', JSON.stringify(updatedTags));
+                                   handleUpdateStagingSubject(targetValue);
+                                   el.value = "";
+                                   if (isOnline) {
+                                     try {
+                                       await setDoc(doc(db, "db_metadata", "subject_tags"), {
+                                         tags: updatedTags,
+                                         updatedAt: new Date().toISOString()
+                                       });
+                                       trackFirestoreWrite(1);
+                                     } catch (err) {
+                                       console.error("Failed to sync tags:", err);
+                                     }
+                                   }
+                                 }}
+                                 className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shrink-0 uppercase tracking-wider font-sans shadow-md"
+                               >
+                                 + Append Tag
+                               </button>
+                             </div>
+                          </div>
+                          <p className="text-[10px] text-slate-400">
+                            These files will map to <strong className="text-indigo-500 font-bold">{stagingSubject}</strong>. (Type in the box above and hit Enter or click Append to create new tags dynamically).
+                          </p>
+                        </div>
 
-                    {/* Dynamic Target Topic Input Module */}
-                    <div className="pt-2">
-                      <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1.5 uppercase font-display">Target Topic Name (Optional)</label>
-                      <input
-                        type="text"
-                        value={stagingTopic}
-                        onChange={(e) => setStagingTopic(e.target.value)}
-                        placeholder="e.g., Electrostatics, Ancient History, Trigonometry..."
-                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
-                      />
-                      <p className="text-[10px] text-slate-400 mt-1">
-                        If set, this topic will be injected into all uploaded questions automatically to help organize your question bank.
-                      </p>
-                    </div>
+                        {/* Dynamic Target Topic Input Module */}
+                        <div className="pt-2 animate-fade-in">
+                          <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1.5 uppercase font-display">Target Topic Name (Optional)</label>
+                          <input
+                            type="text"
+                            value={stagingTopic}
+                            onChange={(e) => setStagingTopic(e.target.value)}
+                            placeholder="e.g., Electrostatics, Ancient History, Trigonometry..."
+                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                          />
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            If set, this topic will be injected into all uploaded questions automatically to help organize your question bank.
+                          </p>
+                        </div>
+                      </>
+                    )}
 
                     {/* Target Exam PYQ Module */}
-                    <div className="pt-2">
-                      <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1.5 uppercase font-display">Target Exam (PYQ Linking)</label>
-                      <div className="relative">
-                        <select
-                          value={stagingTargetExam}
-                          onChange={(e) => setStagingTargetExam(e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-indigo-700 dark:text-indigo-350"
-                        >
-                          <option value="">No Exam Attached (General Bank)</option>
-                          {examConfigs.map(config => (
-                            <option key={config.id} value={config.sourceExamTag}>{config.name} ({config.sourceExamTag})</option>
-                          ))}
-                        </select>
-                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500 pointer-events-none" />
+                    {uploadMode === 'pyq' && (
+                      <div className="pt-2 animate-fade-in">
+                        <label className="text-xs font-black text-amber-600 dark:text-amber-500 block mb-1.5 uppercase font-display">Target Exam (PYQ Linking)</label>
+                        <div className="relative">
+                          <select
+                            value={stagingTargetExam}
+                            onChange={(e) => setStagingTargetExam(e.target.value)}
+                            className="w-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 px-4 py-3 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-amber-500/20 text-amber-700 dark:text-amber-300"
+                          >
+                            <option value="">-- Select Target Exam for PYQ --</option>
+                            {examConfigs.map(config => (
+                              <option key={config.id} value={config.sourceExamTag}>{config.name} ({config.sourceExamTag})</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-500 pointer-events-none" />
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">
+                          Attach these questions as Previous Year Questions (PYQ) to a specific target exam format.
+                        </p>
                       </div>
-                      <p className="text-[10px] text-slate-400 mt-1">
-                        Attach these questions as Previous Year Questions (PYQ) to a specific target exam format.
-                      </p>
-                    </div>
+                    )}
 
                     {/* Staging Render */}
                     {stagedQuestions.length > 0 && (
