@@ -518,6 +518,72 @@ export function stripHtmlToText(html: string): string {
   return text.trim();
 }
 
+function findMatchingOptionIndex(options: string[], answerText: string): number {
+  if (!answerText) return -1;
+  const cleanAns = stripHtmlToText(answerText).toLowerCase().trim();
+  
+  // 1. Exact match
+  let idx = options.findIndex(o => stripHtmlToText(o).toLowerCase().trim() === cleanAns);
+  if (idx !== -1) return idx;
+  
+  // 2. Contains match (meaningful length)
+  if (cleanAns.length > 2) {
+    idx = options.findIndex(o => {
+       const cleanO = stripHtmlToText(o).toLowerCase().trim();
+       if (!cleanO) return false;
+       return cleanO.includes(cleanAns) || cleanAns.includes(cleanO);
+    });
+    if (idx !== -1) return idx;
+  }
+  
+  // 3. Fallback to basic character keys
+  const char = answerText.trim().toUpperCase();
+  if (char === 'A' || char === '1' || char === 'अ' || char === 'क') return 0;
+  if (char === 'B' || char === '2' || char === 'ब' || char === 'ख') return 1;
+  if (char === 'C' || char === '3' || char === 'स' || char === 'ग') return 2;
+  if (char === 'D' || char === '4' || char === 'द' || char === 'घ') return 3;
+  if (char === 'E' || char === '5' || char === 'य' || char === 'ङ') return 4;
+
+  return -1;
+}
+
+function extractAnswerIndexFromJsonItem(item: any, options: string[]): number {
+  if (!item) return 0;
+  
+  // Potential index fields (0-based)
+  const indexKeys = ['correctAnswerIndex', 'answerIndex', 'correct_answer_index', 'answer_index', 'correct_idx', 'answerIdx'];
+  for (const key of indexKeys) {
+    if (item[key] !== undefined && item[key] !== null) {
+       const val = Number(item[key]);
+       if (!isNaN(val)) return val;
+    }
+  }
+
+  // Potential value fields (1-based numbers, letters, or string matches)
+  const valKeys = ['correctAnswer', 'answer', 'correct_answer', 'correct', 'Answer', 'CorrectAnswer', 'Ans', 'ans'];
+  for (const key of valKeys) {
+    if (item[key] !== undefined && item[key] !== null) {
+       const val = item[key];
+       if (typeof val === 'number') {
+          if (val === 0) return 0; // If they literally put 0, assume it's 0-based
+          return val - 1; // Assuming 1-based if it's a number like 1, 2, 3, 4
+       }
+       if (typeof val === 'string') {
+          const oIdx = findMatchingOptionIndex(options, val);
+          if (oIdx !== -1) return oIdx;
+
+          // If it looks like a clean number but didn't match (e.g. a higher number index)
+          const num = Number(val);
+          if (!isNaN(num) && val.trim() !== '') {
+             if (num === 0) return 0;
+             return num - 1;
+          }
+       }
+    }
+  }
+  return 0; // Default fallback
+}
+
 export async function parseUniversalHTML(htmlString: string, targetExam: string): Promise<Question[]> {
   const questions: Question[] = [];
   if (!htmlString) return questions;
@@ -584,27 +650,7 @@ export async function parseUniversalHTML(htmlString: string, targetExam: string)
               }
             }
             while (options.length < 4) options.push(`Option ${options.length + 1}`);
-            let correctIdx = 0;
-            if (q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
-              correctIdx = Number(q.correctAnswerIndex);
-            } else if (q.answerIndex !== undefined && q.answerIndex !== null) {
-              correctIdx = Number(q.answerIndex);
-            } else if (q.answer !== undefined && q.answer !== null) {
-              const ansVal = Number(q.answer);
-              if (!isNaN(ansVal) && ansVal >= 1 && ansVal <= options.length) correctIdx = ansVal - 1;
-              else if (!isNaN(ansVal) && ansVal === 0) correctIdx = 0;
-              else if (typeof q.answer === 'string') {
-                const char = q.answer.trim().toUpperCase();
-                if (char === 'A') correctIdx = 0;
-                else if (char === 'B') correctIdx = 1;
-                else if (char === 'C') correctIdx = 2;
-                else if (char === 'D') correctIdx = 3;
-                else {
-                  const oIdx = options.findIndex(o => o.toLowerCase() === q.answer.toLowerCase());
-                  if (oIdx !== -1) correctIdx = oIdx;
-                }
-              }
-            }
+            let correctIdx = extractAnswerIndexFromJsonItem(q, options);
             if (isNaN(correctIdx) || correctIdx < 0 || correctIdx >= Math.max(1, options.length)) {
               correctIdx = 0;
             }
@@ -661,27 +707,7 @@ export async function parseUniversalHTML(htmlString: string, targetExam: string)
               if (val && String(val).trim() !== "") options.push(stripHtmlToText(String(val)));
             }
             while (options.length < 4) options.push(`Option ${options.length + 1}`);
-            let correctIdx = 0;
-            if (q.correctAnswerIndex !== undefined && q.correctAnswerIndex !== null) {
-              correctIdx = Number(q.correctAnswerIndex);
-            } else if (q.answerIndex !== undefined && q.answerIndex !== null) {
-              correctIdx = Number(q.answerIndex);
-            } else if (q.answer !== undefined && q.answer !== null) {
-              const ansVal = Number(q.answer);
-              if (!isNaN(ansVal) && ansVal >= 1 && ansVal <= options.length) correctIdx = ansVal - 1;
-              else if (!isNaN(ansVal) && ansVal === 0) correctIdx = 0;
-              else if (typeof q.answer === 'string') {
-                const char = q.answer.trim().toUpperCase();
-                if (char === 'A') correctIdx = 0;
-                else if (char === 'B') correctIdx = 1;
-                else if (char === 'C') correctIdx = 2;
-                else if (char === 'D') correctIdx = 3;
-                else {
-                  const oIdx = options.findIndex(o => o.toLowerCase() === q.answer.toLowerCase());
-                  if (oIdx !== -1) correctIdx = oIdx;
-                }
-              }
-            }
+            let correctIdx = extractAnswerIndexFromJsonItem(q, options);
             if (isNaN(correctIdx) || correctIdx < 0 || correctIdx >= Math.max(1, options.length)) {
               correctIdx = 0;
             }
@@ -861,14 +887,19 @@ export async function parseUniversalHTML(htmlString: string, targetExam: string)
           let correctIdx = 0;
           let blockText = "";
           for (let idx = currentA.nodeIndex; idx < limitNodeIdx; idx++) blockText += " " + textNodes[idx].text;
-          const ansMatch = cleanTextOnly(blockText).match(/(?:Ans|Answer|Correct|Key|उत्तर|सही उत्तर|सही विकल्प)[\s\.\-\:]*([A-Ea-e1-5अबसदयकखगघङ])/i);
+          const ansMatch = cleanTextOnly(blockText).match(/(?:Ans|Answer|Correct|Key|उत्तर|सही उत्तर|सही विकल्प)[\s\.\-\:]*(.*)/i);
           if (ansMatch) {
-            const val = ansMatch[1].toUpperCase();
-            if (["A", "1", "अ", "क"].includes(val)) correctIdx = 0;
-            else if (["B", "2", "ब", "ख"].includes(val)) correctIdx = 1;
-            else if (["C", "3", "स", "ग"].includes(val)) correctIdx = 2;
-            else if (["D", "4", "द", "घ"].includes(val)) correctIdx = 3;
-            else if (["E", "5", "य", "ङ"].includes(val)) correctIdx = 4;
+            const val = ansMatch[1].trim();
+            const upperVal = val.substring(0, 1).toUpperCase();
+            if (["A", "1", "अ", "क"].includes(upperVal)) correctIdx = 0;
+            else if (["B", "2", "ब", "ख"].includes(upperVal)) correctIdx = 1;
+            else if (["C", "3", "स", "ग"].includes(upperVal)) correctIdx = 2;
+            else if (["D", "4", "द", "घ"].includes(upperVal)) correctIdx = 3;
+            else if (["E", "5", "य", "ङ"].includes(upperVal)) correctIdx = 4;
+            else {
+               const oIdx = findMatchingOptionIndex(options, val);
+               if (oIdx !== -1) correctIdx = oIdx;
+            }
           }
 
           textNodeQuestions.push({
@@ -940,14 +971,19 @@ export async function parseUniversalHTML(htmlString: string, targetExam: string)
             while (options.length < 4) options.push(`Option ${options.length + 1}`);
 
             let correctIdx = 0;
-            const ansMatch = cleanTextOnly(cleanedHtmlInput.substring(currentQuestionStart, limit)).match(/(?:Ans|Answer|Correct|Key|उत्तर|सही उत्तर)[\s\.\-\:]*([A-Ea-e1-5अबसदयकखगघङ])/i);
+            const ansMatch = cleanTextOnly(cleanedHtmlInput.substring(currentQuestionStart, limit)).match(/(?:Ans|Answer|Correct|Key|उत्तर|सही उत्तर)[\s\.\-\:]*(.*)/i);
             if (ansMatch) {
-              const val = ansMatch[1].toUpperCase();
-              if (["A", "1", "अ", "क"].includes(val)) correctIdx = 0;
-              else if (["B", "2", "ब", "ख"].includes(val)) correctIdx = 1;
-              else if (["C", "3", "स", "ग"].includes(val)) correctIdx = 2;
-              else if (["D", "4", "द", "घ"].includes(val)) correctIdx = 3;
-              else if (["E", "5", "य", "ङ"].includes(val)) correctIdx = 4;
+              const val = ansMatch[1].trim();
+              const upperVal = val.substring(0, 1).toUpperCase();
+              if (["A", "1", "अ", "क"].includes(upperVal)) correctIdx = 0;
+              else if (["B", "2", "ब", "ख"].includes(upperVal)) correctIdx = 1;
+              else if (["C", "3", "स", "ग"].includes(upperVal)) correctIdx = 2;
+              else if (["D", "4", "द", "घ"].includes(upperVal)) correctIdx = 3;
+              else if (["E", "5", "य", "ङ"].includes(upperVal)) correctIdx = 4;
+              else {
+                 const oIdx = findMatchingOptionIndex(options, val);
+                 if (oIdx !== -1) correctIdx = oIdx;
+              }
             }
 
             parsedList.push({
@@ -1081,24 +1117,7 @@ export function parseJSONQuestions(text: string, defaultSubject: string, default
         ].filter(Boolean);
       }
       
-      let correctIdx = 0;
-      if (item.correctAnswerIndex !== undefined && item.correctAnswerIndex !== null) {
-        correctIdx = Number(item.correctAnswerIndex);
-      } else if (item.correctAnswer !== undefined && typeof item.correctAnswer === 'number') {
-        correctIdx = Number(item.correctAnswer);
-      } else if (item.answerIndex !== undefined && item.answerIndex !== null) {
-        correctIdx = Number(item.answerIndex);
-      } else if (typeof item.answer === 'string') {
-        const char = item.answer.trim().toUpperCase();
-        if (char === 'A' || char === '1') correctIdx = 0;
-        else if (char === 'B' || char === '2') correctIdx = 1;
-        else if (char === 'C' || char === '3') correctIdx = 2;
-        else if (char === 'D' || char === '4') correctIdx = 3;
-      } else if (typeof item.correctAnswer === 'string') {
-        const idx = options.findIndex(o => o.toLowerCase() === item.correctAnswer.toLowerCase());
-        if (idx !== -1) correctIdx = idx;
-      }
-      
+      let correctIdx = extractAnswerIndexFromJsonItem(item, options);
       if (isNaN(correctIdx) || correctIdx < 0 || correctIdx >= Math.max(1, options.length)) {
         correctIdx = 0;
       }
@@ -1171,11 +1190,9 @@ export function parseTXTQuestions(text: string, defaultSubject: string, defaultT
 
     const ansMatch = trimmed.match(/^(?:Answer|Ans|Correct|Key)\s*[:.-]?\s*(.*)$/i);
     if (ansMatch) {
-      const val = ansMatch[1].trim().toUpperCase();
-      if (val.startsWith('A') || val === '1') currentCorrectIdx = 0;
-      else if (val.startsWith('B') || val === '2') currentCorrectIdx = 1;
-      else if (val.startsWith('C') || val === '3') currentCorrectIdx = 2;
-      else if (val.startsWith('D') || val === '4') currentCorrectIdx = 3;
+      const val = ansMatch[1].trim();
+      const oIdx = findMatchingOptionIndex(currentOptions, val);
+      if (oIdx !== -1) currentCorrectIdx = oIdx;
       continue;
     }
 
