@@ -20,7 +20,8 @@ import {
   where,
   limit,
   orderBy,
-  getCountFromServer
+  getCountFromServer,
+  arrayUnion
 } from 'firebase/firestore';
 import { db, firebaseConfig } from '../lib/firebase';
 import { parseUniversalHTML, normalizeHindiText, parseJSONQuestions, parseTXTQuestions } from '../lib/htmlParser';
@@ -93,16 +94,16 @@ const LOCAL_STORAGE_MAX_BYTES = 4 * 1024 * 1024; // 4MB Limit
 
 const filterQuestionsByExam = (questions: Question[], exam: ExamConfig): Question[] => {
   if (!exam) return questions;
-  const examIdLower = exam.id.toLowerCase();
-  const examNameLower = exam.name.toLowerCase();
-  const examSubjects = Object.keys(exam.subjectDistribution).map(s => s.toLowerCase().trim());
+  const examIdLower = exam.id.toLowerCase().trim();
+  const examNameLower = exam.name.toLowerCase().trim();
+  const examSubjects = Object.keys(exam.subjectDistribution || {}).map(s => s.toLowerCase().trim());
   const isDSSSB = examIdLower.includes("dsssb") || examNameLower.includes("dsssb");
 
   return questions.filter(q => {
     const qTarget = (q.targetExam || "").toLowerCase().trim();
     const qSubject = (q.subject || "").toLowerCase().trim();
 
-    // 1. Direct tag/subject match if configured
+    // 1. Direct tag match if configured
     if (exam.sourceExamTag) {
       const lowerTag = exam.sourceExamTag.toLowerCase().trim();
       if (qTarget === lowerTag || qSubject === lowerTag) {
@@ -120,10 +121,31 @@ const filterQuestionsByExam = (questions: Question[], exam: ExamConfig): Questio
       return true;
     }
 
-    // 4. Questions uploaded in a special subject mapped in this exam
+    // 4. Questions in subjects belonging to this exam
     if (examSubjects.includes(qSubject)) {
-      if (qTarget === "" || qTarget === "common" || qTarget === examIdLower || qTarget === examNameLower) {
-        return true;
+      // Determine if this is a special subject unique to certain exams
+      const belongsToOtherExams = (typeof DEFAULT_EXAM_CONFIGS !== 'undefined' ? DEFAULT_EXAM_CONFIGS : []).some(otherExam => {
+        if (otherExam.id === exam.id) return false;
+        const otherSubjects = Object.keys(otherExam.subjectDistribution || {}).map(s => s.toLowerCase().trim());
+        return otherSubjects.includes(qSubject);
+      });
+
+      // Special subject (e.g. Computer is only in DSSSB IT, Mathematics is only in DSSSB TGT)
+      if (!belongsToOtherExams) {
+        // Since it's a special subject of this exam, we sync it to this exam
+        // (as long as it doesn't target another specific exam)
+        const isTargetingOtherSpecificExam = (typeof DEFAULT_EXAM_CONFIGS !== 'undefined' ? DEFAULT_EXAM_CONFIGS : []).some(otherExam => {
+          if (otherExam.id === exam.id) return false;
+          return qTarget === otherExam.id.toLowerCase().trim() || qTarget === otherExam.name.toLowerCase().trim();
+        });
+        if (!isTargetingOtherSpecificExam) {
+          return true;
+        }
+      } else {
+        // It's a shared subject (e.g. Reasoning), so it only syncs to this exam if target is common, empty, or this exam
+        if (qTarget === "" || qTarget === "common" || qTarget === examIdLower || qTarget === examNameLower) {
+          return true;
+        }
       }
     }
 
@@ -1175,6 +1197,13 @@ export default function Dashboard() {
   const [selectedExamId, setSelectedExamId] = useState<string>("custom");
   const [activeCountdownExamId, setActiveCountdownExamId] = useState<string>("exam-dsssb-tgt");
   const [analyticsFilter, setAnalyticsFilter] = useState<string>("selected");
+  const [deletedExamIds, setDeletedExamIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('MOCK_DELETED_EXAM_IDS');
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [];
+  });
   const [isAssignedExamSynced, setIsAssignedExamSynced] = useState<boolean>(() => {
     const user = localStorage.getItem('MOCK_CURRENT_USER');
     if (!user) return false;
@@ -1704,22 +1733,50 @@ export default function Dashboard() {
           console.error("Failed to load chunks from Firebase on init:", err);
           setQuestions(SAMPLE_QUESTIONS);
         }
+        
+        // Sync the deleted_configs from Firestore first
+        let currentDeletedIds = [...deletedExamIds];
+        try {
+          const delDoc = await getDoc(doc(db, "db_metadata", "deleted_configs"));
+          if (delDoc.exists()) {
+            const cloudDelIds = delDoc.data().ids || [];
+            const combined = Array.from(new Set([...currentDeletedIds, ...cloudDelIds]));
+            if (combined.length !== currentDeletedIds.length) {
+              setDeletedExamIds(combined);
+              safeLocalStorageSetItem('MOCK_DELETED_EXAM_IDS', JSON.stringify(combined));
+              currentDeletedIds = combined;
+            }
+          }
+        } catch (delErr) {
+          console.warn("Could not sync deleted configs list from cloud:", delErr);
+        }
+
         try {
           const querySnapshot = await getDocs(collection(db, "exam_configs"));
           trackFirestoreRead(querySnapshot.empty ? 1 : querySnapshot.size);
+          const configs: ExamConfig[] = [];
           if (!querySnapshot.empty) {
-            const configs: ExamConfig[] = [];
             querySnapshot.forEach(docSnap => {
               const data = docSnap.data();
               if (data && data.id) {
                 configs.push(data as ExamConfig);
               }
             });
-            if (configs.length > 0) {
-              setExamConfigs(configs);
-              safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(configs));
-            }
           }
+          
+          // Merge with DEFAULT_EXAM_CONFIGS and filter out deleted ones
+          const mergedConfigs = [...configs];
+          if (typeof DEFAULT_EXAM_CONFIGS !== 'undefined') {
+            DEFAULT_EXAM_CONFIGS.forEach(preset => {
+              if (!mergedConfigs.some(c => c.id === preset.id)) {
+                mergedConfigs.push(preset);
+              }
+            });
+          }
+          
+          const filteredConfigs = mergedConfigs.filter(c => !currentDeletedIds.includes(c.id));
+          setExamConfigs(filteredConfigs);
+          safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(filteredConfigs));
         } catch (e) {
           console.error("Failed to fetch exam configurations from Firestore on init:", e);
         }
@@ -1743,7 +1800,7 @@ export default function Dashboard() {
         }
       });
       
-      // Ensure DEFAULT_EXAM_CONFIGS are always present in the local configs state
+      // Ensure DEFAULT_EXAM_CONFIGS are always present in the local configs state unless deleted
       const mergedConfigs = [...configs];
       if (typeof DEFAULT_EXAM_CONFIGS !== 'undefined') {
         DEFAULT_EXAM_CONFIGS.forEach(preset => {
@@ -1753,13 +1810,14 @@ export default function Dashboard() {
         });
       }
 
-      setExamConfigs(mergedConfigs);
-      safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(mergedConfigs));
+      const filteredConfigs = mergedConfigs.filter(c => !deletedExamIds.includes(c.id));
+      setExamConfigs(filteredConfigs);
+      safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(filteredConfigs));
     }, (error) => {
       console.warn("Real-time exam configs sync failed or restricted:", error);
     });
     return () => unsubscribe();
-  }, [isOnline]);
+  }, [isOnline, deletedExamIds]);
 
   // Online/Offline status check and offline creation sync trigger
   useEffect(() => {
@@ -1907,7 +1965,7 @@ export default function Dashboard() {
          return tagA.localeCompare(tagB);
       });
       
-      const chunkSize = 100; // Bundles of exactly 100 questions to prevent Firestore 1MB document payload limits on large uploads
+      const chunkSize = 50; // Bundles of exactly 50 questions to prevent Firestore 1MB document payload limits on large uploads
       const chunksCount = Math.ceil(sortedList.length / chunkSize);
       
       // Get previous chunk count to clean up any obsolete ones
@@ -1920,6 +1978,9 @@ export default function Dashboard() {
       } catch (e) {
         console.warn("Could not retrieve old chunk count:", e);
       }
+
+      let completedChunks = 0;
+      const promises = [];
 
       for (let i = 0; i < chunksCount; i++) {
         const start = i * chunkSize;
@@ -1943,31 +2004,41 @@ export default function Dashboard() {
            if (q.subject) tags.add(q.subject.toLowerCase().trim());
         });
 
-        await setDoc(doc(db, "questions_chunks", `chunk_${i}`), {
-          questions: cleanSlice,
-          updatedAt: new Date().toISOString(),
-          index: i,
-          count: cleanSlice.length,
-          examTags: Array.from(tags)
-        });
-        trackFirestoreWrite(1);
-
-        if (onProgress) {
-          const currentUploaded = Math.min((i + 1) * chunkSize, sortedList.length);
-          onProgress(currentUploaded, sortedList.length, i + 1, chunksCount);
-        }
+        const uploadTask = (async () => {
+          await setDoc(doc(db, "questions_chunks", `chunk_${i}`), {
+            questions: cleanSlice,
+            updatedAt: new Date().toISOString(),
+            index: i,
+            count: cleanSlice.length,
+            examTags: Array.from(tags)
+          });
+          trackFirestoreWrite(1);
+          completedChunks++;
+          if (onProgress) {
+            const currentUploaded = Math.min(completedChunks * chunkSize, sortedList.length);
+            onProgress(currentUploaded, sortedList.length, completedChunks, chunksCount);
+          }
+        })();
+        promises.push(uploadTask);
       }
+
+      // Wait for all chunks to be uploaded in parallel
+      await Promise.all(promises);
 
       // Clean up obsolete chunks if count decreased
       if (previousChunkCount > chunksCount) {
+        const cleanupPromises = [];
         for (let i = chunksCount; i < previousChunkCount + 5; i++) {
-          try {
-            await deleteDoc(doc(db, "questions_chunks", `chunk_${i}`));
-            trackFirestoreDelete(1);
-          } catch (delErr) {
-            console.warn(`Failed to delete obsolete chunk_${i}:`, delErr);
-          }
+          cleanupPromises.push((async () => {
+            try {
+              await deleteDoc(doc(db, "questions_chunks", `chunk_${i}`));
+              trackFirestoreDelete(1);
+            } catch (delErr) {
+              console.warn(`Failed to delete obsolete chunk_${i}:`, delErr);
+            }
+          })());
         }
+        await Promise.all(cleanupPromises);
       }
       
       // Set system update metadata trigger
@@ -2245,8 +2316,10 @@ export default function Dashboard() {
     const prepared = stagedQuestions.map((q, idx) => ({
       ...q,
       id: q.id || `staged-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 9)}`,
-      subject: stagingSubject,
-      createdAt: nowStr,
+      subject: q.subject || stagingSubject || "General",
+      targetExam: q.targetExam || stagingTargetExam || "",
+      topic: q.topic || stagingTopic || "",
+      createdAt: q.createdAt || nowStr,
       updatedAt: nowStr
     }));
 
@@ -2453,45 +2526,7 @@ export default function Dashboard() {
       }
 
       // Filter pool dynamically based on user's selected/assigned exam target and subject rules:
-      // - DSSSB IT and DSSSB TGT include ALL questions uploaded in "common" (case-insensitive targetExam or subject).
-      // - Special subjects are synced to their related exam.
-      let examPool = sourcePool;
-      const examIdLower = exam.id.toLowerCase();
-      const examNameLower = exam.name.toLowerCase();
-      const examSubjects = Object.keys(exam.subjectDistribution).map(s => s.toLowerCase().trim());
-      const isDSSSB = examIdLower.includes("dsssb") || examNameLower.includes("dsssb");
-
-      examPool = sourcePool.filter(q => {
-        const qTarget = (q.targetExam || "").toLowerCase().trim();
-        const qSubject = (q.subject || "").toLowerCase().trim();
-
-        // 1. Direct tag/subject match if configured
-        if (exam.sourceExamTag) {
-          const lowerTag = exam.sourceExamTag.toLowerCase().trim();
-          if (qTarget === lowerTag || qSubject === lowerTag) {
-            return true;
-          }
-        }
-
-        // 2. Direct match by exam ID or name
-        if (qTarget === examIdLower || qTarget === examNameLower) {
-          return true;
-        }
-
-        // 3. DSSSB IT and DSSSB TGT include ALL "common" questions
-        if (isDSSSB && (qTarget === "common" || qSubject === "common")) {
-          return true;
-        }
-
-        // 4. Questions uploaded in a special subject mapped in this exam
-        if (examSubjects.includes(qSubject)) {
-          if (qTarget === "" || qTarget === "common" || qTarget === examIdLower || qTarget === examNameLower) {
-            return true;
-          }
-        }
-
-        return false;
-      });
+      let examPool = filterQuestionsByExam(sourcePool, exam);
 
       // Compile questions according to subject pattern mapping with ±2 random offset
       let compiledList: Question[] = [];
@@ -2576,9 +2611,23 @@ export default function Dashboard() {
       setExamConfigs(nextConfigs);
       safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(nextConfigs));
 
+      // Append to local deleted tracking array
+      setDeletedExamIds(prev => {
+        const next = Array.from(new Set([...prev, id]));
+        safeLocalStorageSetItem('MOCK_DELETED_EXAM_IDS', JSON.stringify(next));
+        return next;
+      });
+
       if (isOnline) {
         try {
           await deleteDoc(doc(db, "exam_configs", id));
+          
+          // Store deletion registry entry in metadata
+          await setDoc(doc(db, "db_metadata", "deleted_configs"), {
+            ids: arrayUnion(id)
+          }, { merge: true });
+          trackFirestoreWrite(1);
+
           // Event change dispatched to keep bytes tracked
           window.dispatchEvent(new CustomEvent('localstorage_budget_change'));
         } catch (err) {
@@ -3440,9 +3489,9 @@ export default function Dashboard() {
 
                 {/* Exam Rules & Custom Mocks is now open to all students/users */}
                 <button
-                  onClick={() => { window.open(window.location.origin + '?tab=exam-creator', '_blank'); setIsMobileDrawerOpen(false); }}
+                  onClick={() => { setActiveTab('exam-creator'); setReviewedAttempt(null); setIsMobileDrawerOpen(false); }}
                   className={`w-full flex items-center space-x-3 text-xs font-black uppercase p-3 rounded-xl border transition-all ${
-                    activeTab === 'exam-creator'
+                    activeTab === 'exam-creator' && !reviewedAttempt
                       ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 shadow-md shadow-indigo-100/10'
                       : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-500'
                   }`}
@@ -3450,7 +3499,6 @@ export default function Dashboard() {
                   <Trophy className="w-4 h-4 shrink-0 text-amber-500 animate-pulse" />
                   <div className="flex-1 flex items-center justify-between text-left">
                     <span>Custom Mocks & Rules</span>
-                    <ExternalLink className="h-3 w-3 text-slate-450 shrink-0" />
                   </div>
                 </button>
 
@@ -3752,8 +3800,22 @@ export default function Dashboard() {
             {activeTab === 'mock-config' && !reviewedAttempt ? (
               <div className="space-y-6">
                 {assignedExam && !isAssignedExamSynced && (
-                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-slate-900 dark:to-amber-955/20 border border-amber-200 dark:border-amber-900/40 p-6 rounded-3xl shadow-sm space-y-4 animate-fade-in text-left">
-                    <div className="flex items-center space-x-3">
+                  <div className="relative bg-gradient-to-r from-amber-50 to-orange-50 dark:from-slate-900 dark:to-amber-955/20 border border-amber-200 dark:border-amber-900/40 p-6 rounded-3xl shadow-sm space-y-4 animate-fade-in text-left">
+                     {/* Manual Dismiss Button */}
+                     <button
+                       onClick={() => {
+                         setIsAssignedExamSynced(true);
+                         if (currentUser) {
+                           localStorage.setItem(`MOCK_ASSIGNED_EXAM_SYNCED_${currentUser}`, 'true');
+                         }
+                       }}
+                       className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-amber-100 dark:hover:bg-amber-905/40 text-amber-600 dark:text-amber-400 transition cursor-pointer"
+                       title="Dismiss Assignment Notification"
+                     >
+                       <X className="h-4.5 w-4.5" />
+                     </button>
+
+                    <div className="flex items-center space-x-3 pr-8">
                       <div className="bg-amber-100 dark:bg-amber-900/50 p-2.5 rounded-2xl shrink-0">
                         <Trophy className="h-6 w-6 text-amber-600 dark:text-amber-400 animate-bounce" />
                       </div>
@@ -3821,7 +3883,6 @@ export default function Dashboard() {
                           if (currentUser) {
                             localStorage.setItem(`MOCK_ASSIGNED_EXAM_SYNCED_${currentUser}`, 'true');
                           }
-                          alert("🎯 Automatically synced settings with your assigned target exam!");
                         }}
                         className="px-4 py-2 bg-amber-600 hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider shadow hover:scale-[1.01] active:scale-95 transition-all cursor-pointer"
                       >

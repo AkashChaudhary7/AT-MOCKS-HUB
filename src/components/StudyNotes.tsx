@@ -314,9 +314,13 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
         } as StudyNote);
       });
       setNotes(loadedNotes);
+      if (loadedNotes.length > 0) {
+        localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
+      }
 
       // Trigger automatic seeding using a coordinated DB metadata flag to prevent infinite local re-uploads
-      if (loadedNotes.length === 0 && !isSeeding) {
+      const locallySeeded = localStorage.getItem('MOCK_STUDY_NOTES_SEEDED') === 'true';
+      if (loadedNotes.length === 0 && !isSeeding && !locallySeeded) {
         try {
           const sysDocRef = doc(db, "db_metadata", "system");
           const sysDoc = await getDoc(sysDocRef);
@@ -338,6 +342,7 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
             }
             // Mark as seeded in Firestore to prevent other browsers from ever re-seeding if admin clears the list
             await setDoc(sysDocRef, { notesSeeded: true }, { merge: true });
+            localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
             setIsSeeding(false);
           }
         } catch (e) {
@@ -375,7 +380,10 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
 
   const handleDeleteNote = async (noteId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm("Are you sure you want to delete this study note from the cloud?")) {
+    if (window.confirm("Are you sure you want to delete this study note?")) {
+      // Optimistically remove from state so the note vanishes instantly from the screen
+      setNotes(prev => prev.filter(n => n.id !== noteId));
+      
       try {
         await deleteDoc(doc(db, "study_notes", noteId));
       } catch (err) {
