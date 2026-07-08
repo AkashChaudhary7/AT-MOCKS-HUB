@@ -1,0 +1,45 @@
+{
+  "short_name": "MockBuilder",
+  "name": "Remix Mock Builder",
+  "description": "High-speed custom mock exam builder and study notes platform with robust offline capabilities.",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#09071f",
+  "theme_color": "#4f46e5",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "categories": ["education", "utilities"],
+  "shortcuts": [
+    {
+      "name": "Configure Exams",
+      "short_name": "Configure",
+      "url": "/",
+      "icons": [{ "src": "/icon.svg", "sizes": "192x192" }]
+    },
+    {
+      "name": "Study Notes",
+      "short_name": "Notes",
+      "url": "/",
+      "icons": [{ "src": "/icon.svg", "sizes": "192x192" }]
+    }
+  ]
+}

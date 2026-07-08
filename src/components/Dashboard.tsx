@@ -3159,6 +3159,8 @@ export default function Dashboard() {
     );
   }
 
+  const isAdminTab = ['admin', 'exam-creator', 'question-uploader', 'user-management', 'flagged-manager'].includes(activeTab);
+
   return (
     <div className={isDarkMode ? 'dark text-slate-100 bg-slate-950 min-h-screen transition-colors' : 'text-slate-800 bg-slate-50 min-h-screen transition-colors'}>
       {/* Sidebar Navigation Menu */}
@@ -3315,6 +3317,30 @@ export default function Dashboard() {
                     >
                       <ShieldCheck className="w-4 h-4 shrink-0" />
                       <span>Admin Dashboard</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveTab('exam-creator'); setReviewedAttempt(null); setIsMobileDrawerOpen(false); }}
+                      className={`w-full flex items-center space-x-3 text-xs font-black uppercase p-3 rounded-xl border transition-all ${
+                        activeTab === 'exam-creator'
+                          ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <Trophy className="w-4 h-4 shrink-0" />
+                      <span>Exam Rules</span>
+                    </button>
+
+                    <button
+                      onClick={() => { setActiveTab('question-uploader'); setReviewedAttempt(null); setIsMobileDrawerOpen(false); }}
+                      className={`w-full flex items-center space-x-3 text-xs font-black uppercase p-3 rounded-xl border transition-all ${
+                        activeTab === 'question-uploader'
+                          ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <UploadCloud className="w-4 h-4 shrink-0" />
+                      <span>Question Uploader</span>
                     </button>
 
                     <button
@@ -4179,7 +4205,81 @@ export default function Dashboard() {
               </div>
             )}
 
-            {activeTab === 'admin' && !reviewedAttempt && (
+            {isAdminTab && !isAdminAuthenticated && !reviewedAttempt && (
+              <div className="space-y-6 animate-fade-in text-left">
+                {/* Card header */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="bg-indigo-100 dark:bg-indigo-900/50 p-2.5 rounded-xl">
+                        <ShieldCheck className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-black font-display text-indigo-900 dark:text-indigo-400">Admin Authentication</h2>
+                        <p className="text-[10px] text-slate-400 font-medium font-sans mt-0.5">Authorize workspace credentials to continue</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <button 
+                        onClick={() => setActiveTab('mock-config')}
+                        className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:hover:bg-indigo-900/60 dark:text-indigo-400 rounded-xl transition-colors cursor-pointer flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 duration-150"
+                        title="Back to Home"
+                      >
+                        <Home className="h-4.5 w-4.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 max-w-md mx-auto shadow-xl text-center space-y-6">
+                  <div className="space-y-2">
+                    <Lock className="h-10 w-10 text-indigo-500 mx-auto animate-bounce" />
+                    <h3 className="text-lg font-black text-slate-900 dark:text-white font-display">Administrator Access Required</h3>
+                    <p className="text-xs text-slate-400">Please enter your 6-digit administrator PIN code to proceed.</p>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="text-left">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Pin Code Required</label>
+                      <input 
+                        type="password"
+                        value={adminPasswordInput}
+                        onChange={(e) => { setAdminPasswordInput(e.target.value); setAdminError(false); }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            if (adminPasswordInput === '8544') {
+                              setIsAdminAuthenticated(true);
+                              setAdminPasswordInput("");
+                            } else {
+                              setAdminError(true);
+                            }
+                          }
+                        }}
+                        className={`w-full bg-slate-50 dark:bg-slate-800 border ${adminError ? 'border-rose-300 ring-4 ring-rose-500/10' : 'border-slate-200 dark:border-slate-800'} px-5 py-4 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all text-slate-900 dark:text-slate-100 text-center tracking-[0.5em]`}
+                        placeholder="••••••"
+                        autoFocus
+                      />
+                      {adminError && <p className="text-[10px] font-bold text-rose-500 mt-2 text-center uppercase tracking-wider">Invalid Administrator Password</p>}
+                    </div>
+                    <button 
+                      onClick={() => {
+                        if (adminPasswordInput === '8544') {
+                          setIsAdminAuthenticated(true);
+                          setAdminPasswordInput("");
+                        } else {
+                          setAdminError(true);
+                        }
+                      }}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-4 rounded-2xl shadow-xl shadow-indigo-200 dark:shadow-none transition-all active:scale-95 cursor-pointer"
+                    >
+                      LOGIN TO ADMIN BLOCK
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'admin' && isAdminAuthenticated && !reviewedAttempt && (
               <div className="space-y-6 animate-fade-in text-left">
                 {/* Card header */}
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
@@ -4196,7 +4296,7 @@ export default function Dashboard() {
                       {isAdminAuthenticated && (
                         <button 
                           onClick={() => setIsAdminAuthenticated(false)}
-                          className="p-2.5 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors cursor-pointer flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 duration-150"
+                          className="p-2.5 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-955/20 transition-colors cursor-pointer flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 duration-150"
                           title="Sign Out Administrator"
                         >
                           <LogOut className="h-4.5 w-4.5" />
@@ -4213,54 +4313,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {!isAdminAuthenticated ? (
-                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 max-w-md mx-auto shadow-xl text-center space-y-6">
-                    <div className="space-y-2">
-                      <Lock className="h-10 w-10 text-indigo-500 mx-auto animate-bounce" />
-                      <h3 className="text-lg font-black text-slate-900 dark:text-white font-display">Administrator Access Required</h3>
-                      <p className="text-xs text-slate-400">Please enter your 6-digit administrator PIN code to proceed.</p>
-                    </div>
-
-                    <div className="space-y-4">
-                      <div className="text-left">
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Pin Code Required</label>
-                        <input 
-                          type="password"
-                          value={adminPasswordInput}
-                          onChange={(e) => { setAdminPasswordInput(e.target.value); setAdminError(false); }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              if (adminPasswordInput === '8544') {
-                                setIsAdminAuthenticated(true);
-                                setAdminPasswordInput("");
-                              } else {
-                                setAdminError(true);
-                              }
-                            }
-                          }}
-                          className={`w-full bg-slate-50 dark:bg-slate-800 border ${adminError ? 'border-rose-300 ring-4 ring-rose-500/10' : 'border-slate-200 dark:border-slate-800'} px-5 py-4 rounded-2xl text-sm font-bold outline-none focus:ring-4 focus:ring-indigo-500/10 transition-all text-slate-900 dark:text-slate-100 text-center tracking-[0.5em]`}
-                          placeholder="••••••"
-                          autoFocus
-                        />
-                        {adminError && <p className="text-[10px] font-bold text-rose-500 mt-2 text-center uppercase tracking-wider">Invalid Administrator Password</p>}
-                      </div>
-                      <button 
-                        onClick={() => {
-                          if (adminPasswordInput === '8544') {
-                            setIsAdminAuthenticated(true);
-                            setAdminPasswordInput("");
-                          } else {
-                            setAdminError(true);
-                          }
-                        }}
-                        className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs py-4 rounded-2xl shadow-xl shadow-indigo-200 dark:shadow-none transition-all active:scale-95 cursor-pointer"
-                      >
-                        LOGIN TO ADMIN BLOCK
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-left animate-in fade-in duration-200">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 text-left animate-in fade-in duration-200">
                     {/* Left Column: Admin Section Overview & Dedicated Exam Blueprint Launchpad */}
                     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-sm flex flex-col justify-between">
                       <div className="space-y-6">
@@ -4282,12 +4335,12 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      {/* Launch separate Exam Creator Modal Button */}
+                      {/* Launch separate Exam Creator Panel Button */}
                       <div className="pt-6 border-t border-slate-100 dark:border-slate-800 mt-6">
                         <button
                           type="button"
                           onClick={() => {
-                            setIsExamCreatorModalOpen(true);
+                            setActiveTab('exam-creator');
                           }}
                           className="w-full py-4 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-750 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg hover:scale-[1.01] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
                         >
@@ -4422,7 +4475,7 @@ export default function Dashboard() {
                           📚 Q-Bank Console
                         </button>
                         <button
-                          onClick={() => { setIsUploadModalOpen(true); }}
+                          onClick={() => { setActiveTab('question-uploader'); }}
                           className="bg-slate-50 dark:bg-slate-800 hover:bg-indigo-50/50 border border-slate-200 dark:border-slate-800 text-center py-3.5 rounded-xl text-xs font-bold text-slate-705 dark:text-slate-300 cursor-pointer"
                         >
                           📤 Question Upload
@@ -4541,9 +4594,8 @@ export default function Dashboard() {
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
 
             {activeTab === 'offline-manager' && !reviewedAttempt && (
               <div className="space-y-6 animate-fade-in">
@@ -5654,6 +5706,580 @@ export default function Dashboard() {
               </div>
             )}
 
+            {activeTab === 'exam-creator' && isAdminAuthenticated && !reviewedAttempt && (
+              <div className="space-y-6 animate-fade-in text-left">
+                {/* Header card */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="bg-indigo-100 dark:bg-indigo-900/50 p-2.5 rounded-xl">
+                        <Trophy className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-black font-display text-indigo-900 dark:text-indigo-400">Exam Pattern & Blueprint Creator</h2>
+                        <p className="text-[10px] text-slate-400 font-medium font-sans mt-0.5">Configure custom exam layouts, timed limits, and marking rules</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setActiveTab('admin')}
+                      className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:hover:bg-indigo-900/60 dark:text-indigo-400 rounded-xl transition-colors cursor-pointer flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 duration-150"
+                      title="Back to Admin Dashboard"
+                    >
+                      <ShieldCheck className="h-4.5 w-4.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-sm">
+                  <div className="space-y-6 text-left font-sans">
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-xl font-medium">
+                      Create customized exam formats, configure specific subject quotas, and set timed limits. The configuration will automatically apply to generated practice papers.
+                    </p>
+
+                    <div className="space-y-5 pt-2">
+                      {/* Selector of current config mapping */}
+                      <div>
+                        <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 font-sans">Select Exam Pattern to Configure</label>
+                        <select
+                          value={selectedAdminExamId}
+                          onChange={(e) => setSelectedAdminExamId(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold outline-none text-slate-700 dark:text-slate-300"
+                        >
+                          <option value="">-- Create New Standard Pattern --</option>
+                          {examConfigs.map(c => (
+                            <option key={c.id} value={c.id}>{c.name} ({c.durationMinutes} minutes)</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {selectedAdminExamId ? (
+                        (() => {
+                          const targetPattern = examConfigs.find(c => c.id === selectedAdminExamId);
+                          if (!targetPattern) return null;
+                          return (
+                            <div className="space-y-4 animate-fade-in bg-slate-50/50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-700">
+                              <div className="flex justify-between items-center pb-2.5 border-b border-slate-200 dark:border-slate-800">
+                                <span className="text-xs font-black text-slate-700 dark:text-slate-300 truncate">{targetPattern.name} Parameter Table</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteExamConfigFromDB(targetPattern.id)}
+                                  className="text-[10px] bg-red-100 hover:bg-red-200 dark:bg-red-950 text-red-500 px-3 py-1.5 rounded-lg font-bold transition cursor-pointer"
+                                >
+                                  Delete Entire Exam
+                                </button>
+                              </div>
+
+                              {/* Define Total Questions / Stats Widget */}
+                              {(() => {
+                                const totalQs = Object.values(targetPattern.subjectDistribution).reduce((a, b) => a + (b as number), 0);
+                                return (
+                                  <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/45 p-4 rounded-xl flex items-center justify-between">
+                                    <div className="text-left">
+                                      <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-wider">Total Exam Questions</span>
+                                      <span className="text-lg font-extrabold text-indigo-900 dark:text-indigo-400">{totalQs} Qs</span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold max-w-[180px] text-right leading-tight">
+                                      Automatically computed based on active subject limits below.
+                                    </span>
+                                  </div>
+                                );
+                              })()}
+
+                              {/* Grid for Timing and Scoring Marks */}
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                {/* Timing Widget */}
+                                <div className="space-y-1 text-left">
+                                  <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Timing (Minutes)</label>
+                                  <input 
+                                    type="number"
+                                    value={targetPattern.durationMinutes || 60}
+                                    onChange={(e) => {
+                                      const updated = { ...targetPattern, durationMinutes: Math.max(1, parseInt(e.target.value) || 0) };
+                                      const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
+                                      setExamConfigs(nextConfigs);
+                                      handleUpdateExamConfigOnDB(updated);
+                                    }}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                  />
+                                </div>
+
+                                {/* Correct Answer Marks Widget */}
+                                <div className="space-y-1 text-left">
+                                  <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Correct Marks</label>
+                                  <input 
+                                    type="number"
+                                    step="0.1"
+                                    value={targetPattern.correctAnswerMarks ?? 4}
+                                    onChange={(e) => {
+                                      const updated = { ...targetPattern, correctAnswerMarks: parseFloat(e.target.value) || 0 };
+                                      const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
+                                      setExamConfigs(nextConfigs);
+                                      handleUpdateExamConfigOnDB(updated);
+                                    }}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                  />
+                                </div>
+
+                                {/* Negative Marking Widget */}
+                                <div className="space-y-1 text-left">
+                                  <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Neg Marks</label>
+                                  <input 
+                                    type="number"
+                                    step="0.01"
+                                    value={targetPattern.negativeMarking ?? -1}
+                                    onChange={(e) => {
+                                      const updated = { ...targetPattern, negativeMarking: parseFloat(e.target.value) || 0 };
+                                      const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
+                                      setExamConfigs(nextConfigs);
+                                      handleUpdateExamConfigOnDB(updated);
+                                    }}
+                                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Target Exam Deadline Edit Box */}
+                              <div className="space-y-1 text-left">
+                                <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider font-sans">Exam Target Deadline (Date)</label>
+                                <input
+                                  type="date"
+                                  value={(() => {
+                                    const matchingCounter = examCounters.find(cnt => cnt.id === targetPattern.id);
+                                    return matchingCounter ? matchingCounter.targetDate : "2026-05-04";
+                                  })()}
+                                  onChange={async (e) => {
+                                    const nextDate = e.target.value;
+                                    const updatedCounters = examCounters.map(cnt => cnt.id === targetPattern.id ? { ...cnt, targetDate: nextDate } : cnt);
+                                    if (!updatedCounters.some(cnt => cnt.id === targetPattern.id)) {
+                                      updatedCounters.push({ id: targetPattern.id, name: targetPattern.name, targetDate: nextDate });
+                                    }
+                                    setExamCounters(updatedCounters);
+                                    safeLocalStorageSetItem('MOCK_EXAM_COUNTERS', JSON.stringify(updatedCounters));
+                                    if (isOnline) {
+                                      try {
+                                        await setDoc(doc(db, "db_metadata", "exam_counters"), {
+                                          counters: updatedCounters,
+                                          updatedAt: new Date().toISOString()
+                                        });
+                                        trackFirestoreWrite(1);
+                                      } catch (err) {
+                                        console.error("Failed to sync counter deadline:", err);
+                                      }
+                                    }
+                                  }}
+                                  className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                                />
+                              </div>
+
+                              {/* Modify Subject distributions slots */}
+                              <div className="pt-2">
+                                <span className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2 font-display">Active Subject Quotas</span>
+                                <div className="space-y-2">
+                                  {Object.keys(targetPattern.subjectDistribution).map((subjKey) => (
+                                    <div key={subjKey} className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 text-xs">
+                                      <span className="font-extrabold text-slate-700 dark:text-slate-300">{subjKey} quota</span>
+                                      <div className="flex items-center space-x-2">
+                                        <input 
+                                          type="number"
+                                          value={targetPattern.subjectDistribution[subjKey] || 0}
+                                          onChange={(e) => {
+                                            const updatedDist = { ...targetPattern.subjectDistribution, [subjKey]: Math.max(0, parseInt(e.target.value) || 0) };
+                                            const updated = { ...targetPattern, subjectDistribution: updatedDist };
+                                            const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
+                                            setExamConfigs(nextConfigs);
+                                            handleUpdateExamConfigOnDB(updated);
+                                          }}
+                                          className="w-16 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1.5 rounded-lg text-xs font-bold text-center"
+                                        />
+                                        <span className="text-[10px] text-slate-400 font-bold uppercase">QA</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            const form = e.currentTarget;
+                            const name = (form.elements.namedItem('examName') as HTMLInputElement).value.trim();
+                            const tag = (form.elements.namedItem('examTag') as HTMLInputElement).value.trim().toUpperCase();
+                            const duration = parseInt((form.elements.namedItem('examDuration') as HTMLInputElement).value) || 60;
+                            
+                            if (!name || !tag) return;
+                            
+                            const newConfig: ExamConfig = {
+                              id: `config-${Date.now()}`,
+                              name,
+                              sourceExamTag: tag,
+                              durationMinutes: duration,
+                              correctAnswerMarks: 4,
+                              negativeMarking: -1,
+                              subjectDistribution: {
+                                "Physics": 45,
+                                "Chemistry": 45,
+                                "Biology": 90,
+                                "General": 0
+                              }
+                            };
+                            
+                            const updatedConfigs = [...examConfigs, newConfig];
+                            setExamConfigs(updatedConfigs);
+                            handleUpdateExamConfigOnDB(newConfig);
+                            setSelectedAdminExamId(newConfig.id);
+                          }}
+                          className="space-y-4 animate-fade-in bg-slate-50/50 dark:bg-slate-800/40 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-700"
+                        >
+                          <span className="block text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest mb-1">Create Custom Layout Pattern</span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slate-400 block">Exam Name</label>
+                              <input 
+                                type="text" 
+                                name="examName"
+                                required
+                                placeholder="e.g., NEET Major Test" 
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-slate-400 block">Source Tag (Unique Code)</label>
+                              <input 
+                                type="text" 
+                                name="examTag"
+                                required
+                                placeholder="e.g., NEET_MOCK_1" 
+                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 block">Exam Timing (Minutes)</label>
+                            <input 
+                              type="number" 
+                              name="examDuration"
+                              defaultValue={180}
+                              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-bold outline-none text-slate-800 dark:text-white"
+                            />
+                          </div>
+
+                          <button
+                            type="submit"
+                            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase rounded-xl shadow-lg tracking-widest transition cursor-pointer"
+                          >
+                            ➕ REGISTER NEW EXAM PATTERN
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'question-uploader' && isAdminAuthenticated && !reviewedAttempt && (
+              <div className="space-y-6 animate-fade-in text-left">
+                {/* Header card */}
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="bg-indigo-100 dark:bg-indigo-900/50 p-2.5 rounded-xl">
+                        <FileCode className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-black font-display text-indigo-900 dark:text-indigo-400">Advanced Question Bank Uploader</h2>
+                        <p className="text-[10px] text-slate-400 font-medium font-sans mt-0.5">Drag and drop mock trial sheets, HTML test codes, structured JSON lists, or plain text files</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setActiveTab('admin')}
+                      className="p-2.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 dark:bg-indigo-900/40 dark:hover:bg-indigo-900/60 dark:text-indigo-400 rounded-xl transition-colors cursor-pointer flex items-center justify-center shadow-sm hover:scale-105 active:scale-95 duration-150"
+                      title="Back to Admin Dashboard"
+                    >
+                      <ShieldCheck className="h-4.5 w-4.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-sm">
+                  <div className="space-y-6 text-left font-sans">
+                    <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl font-medium">
+                      Drag and drop your HTML mock exams, structured JSON lists, or plain text TXT files. Our resilient parsing engine will instantly extract questions, options, and keys into format-ready banks.
+                    </p>
+
+                    <div 
+                      onDragOver={handleDragOver}
+                      onDrop={handleDrop}
+                      onClick={() => !uploadProgress && fileInputRef.current?.click()}
+                      className={`mt-4 border-2 border-dashed border-indigo-100 dark:border-indigo-950/80 hover:border-indigo-600 dark:hover:border-indigo-500/50 bg-slate-50/30 dark:bg-slate-900/40 rounded-[2rem] p-10 text-center transition-all group ${uploadProgress ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                    >
+                      <input 
+                        type="file" 
+                        accept=".html, .htm, .json, .txt" 
+                        ref={fileInputRef} 
+                        onChange={handleFileUpload} 
+                        multiple
+                        className="hidden" 
+                      />
+                      {uploadProgress ? (
+                        <div className="flex flex-col items-center justify-center space-y-4 py-2">
+                          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                          <div className="text-sm font-black text-slate-700 dark:text-slate-300 font-display">
+                            Processing {uploadProgress.current} of {uploadProgress.total} file(s)...
+                          </div>
+                          <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
+                            {uploadProgress.questionsFound} potential questions extracted so far
+                          </div>
+                          <div className="w-full max-w-xs bg-slate-200 dark:bg-slate-800 rounded-full h-2">
+                            <div className="bg-indigo-600 h-2 rounded-full transition-all duration-300 mx-auto" style={{ width: `${Math.max(5, (uploadProgress.current / Math.max(1, uploadProgress.total)) * 100)}%` }}></div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="py-4 font-sans">
+                          <div className="mx-auto w-16 h-16 mb-4 rounded-full bg-indigo-50 dark:bg-indigo-950/45 flex items-center justify-center border border-indigo-100/60 dark:border-indigo-900/40 group-hover:scale-105 group-hover:bg-indigo-100/50 dark:group-hover:bg-indigo-900/60 transition-all duration-300 shadow-sm">
+                            <UploadCloud className="h-7 w-7 text-indigo-500 dark:text-indigo-400 group-hover:text-indigo-600 transition-colors shrink-0" />
+                          </div>
+                          <span className="text-sm font-extrabold block mb-1.5 text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors font-display tracking-tight">
+                            Drag & Drop HTML, JSON, or TXT Files Here
+                          </span>
+                          <span className="text-xs text-slate-400 dark:text-slate-500 block max-w-lg mx-auto leading-relaxed">
+                            Accepts bulk <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[10px] text-indigo-500 font-extrabold">.html</code>, <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[10px] text-indigo-500 font-extrabold">.json</code>, or <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[10px] text-indigo-500 font-extrabold">.txt</code> files.
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {uploadError && (
+                      <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 text-red-655 dark:text-red-400 text-xs rounded-xl flex items-start space-x-2">
+                        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <div>
+                          <span className="font-bold">Extraction Info:</span>
+                          <p className="mt-0.5">{uploadError}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Dynamic / Persistent Target Subject Selector Dropdown Module */}
+                    <div className="pt-4 space-y-3">
+                      <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1 uppercase font-display">Target Subject Tag (Fixed Selection)</label>
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                         <div className="relative flex-1">
+                           <select
+                             value={stagingSubject}
+                             onChange={(e) => handleUpdateStagingSubject(e.target.value)}
+                             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3.5 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100"
+                           >
+                             {subjectTagsList.map((tag) => (
+                               <option key={tag} value={tag} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">{tag}</option>
+                             ))}
+                           </select>
+                           <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                         </div>
+                         <div className="flex items-center gap-2 flex-1">
+                           <input
+                             type="text"
+                             placeholder="Enter new custom tag..."
+                             id="bulk-custom-tag-input"
+                             className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                             onKeyDown={async (e) => {
+                               if (e.key === 'Enter') {
+                                 e.preventDefault();
+                                 const targetValue = (e.currentTarget as HTMLInputElement).value.trim();
+                                 if (!targetValue) return;
+                                 if (subjectTagsList.includes(targetValue)) {
+                                   handleUpdateStagingSubject(targetValue);
+                                   (e.currentTarget as HTMLInputElement).value = "";
+                                   return;
+                                 }
+                                 const updatedTags = [...subjectTagsList, targetValue];
+                                 setSubjectTagsList(updatedTags);
+                                 safeLocalStorageSetItem('MOCK_SUBJECT_TAGS', JSON.stringify(updatedTags));
+                                 handleUpdateStagingSubject(targetValue);
+                                 (e.currentTarget as HTMLInputElement).value = "";
+                                 if (isOnline) {
+                                   try {
+                                     await setDoc(doc(db, "db_metadata", "subject_tags"), {
+                                       tags: updatedTags,
+                                       updatedAt: new Date().toISOString()
+                                     });
+                                     trackFirestoreWrite(1);
+                                   } catch (err) {
+                                     console.error("Failed to sync tags:", err);
+                                   }
+                                 }
+                               }
+                             }}
+                           />
+                           <button
+                             type="button"
+                             onClick={async () => {
+                               const el = document.getElementById('bulk-custom-tag-input') as HTMLInputElement;
+                               const targetValue = el ? el.value.trim() : "";
+                               if (!targetValue) return;
+                               if (subjectTagsList.includes(targetValue)) {
+                                 handleUpdateStagingSubject(targetValue);
+                                 el.value = "";
+                                 return;
+                               }
+                               const updatedTags = [...subjectTagsList, targetValue];
+                               setSubjectTagsList(updatedTags);
+                               safeLocalStorageSetItem('MOCK_SUBJECT_TAGS', JSON.stringify(updatedTags));
+                               handleUpdateStagingSubject(targetValue);
+                               el.value = "";
+                               if (isOnline) {
+                                 try {
+                                   await setDoc(doc(db, "db_metadata", "subject_tags"), {
+                                     tags: updatedTags,
+                                     updatedAt: new Date().toISOString()
+                                   });
+                                   trackFirestoreWrite(1);
+                                 } catch (err) {
+                                   console.error("Failed to sync tags:", err);
+                                 }
+                               }
+                             }}
+                             className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shrink-0 uppercase tracking-wider font-sans shadow-md"
+                           >
+                             + Append Tag
+                           </button>
+                         </div>
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        These files will map to <strong className="text-indigo-500 font-bold">{stagingSubject}</strong>. (Type in the box above and hit Enter or click Append to create new tags dynamically).
+                      </p>
+                    </div>
+
+                    {/* Dynamic Target Topic Input Module */}
+                    <div className="pt-2">
+                      <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1.5 uppercase font-display">Target Topic Name (Optional)</label>
+                      <input
+                        type="text"
+                        value={stagingTopic}
+                        onChange={(e) => setStagingTopic(e.target.value)}
+                        placeholder="e.g., Electrostatics, Ancient History, Trigonometry..."
+                        className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
+                      />
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        If set, this topic will be injected into all uploaded questions automatically to help organize your question bank.
+                      </p>
+                    </div>
+
+                    {/* Target Exam PYQ Module */}
+                    <div className="pt-2">
+                      <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1.5 uppercase font-display">Target Exam (PYQ Linking)</label>
+                      <div className="relative">
+                        <select
+                          value={stagingTargetExam}
+                          onChange={(e) => setStagingTargetExam(e.target.value)}
+                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-indigo-700 dark:text-indigo-350"
+                        >
+                          <option value="">No Exam Attached (General Bank)</option>
+                          {examConfigs.map(config => (
+                            <option key={config.id} value={config.sourceExamTag}>{config.name} ({config.sourceExamTag})</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500 pointer-events-none" />
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">
+                        Attach these questions as Previous Year Questions (PYQ) to a specific target exam format.
+                      </p>
+                    </div>
+
+                    {/* Staging Render */}
+                    {stagedQuestions.length > 0 && (
+                      <div className="mt-6 border-t border-slate-100 dark:border-slate-800 pt-6 animate-fade-in">
+                        <div className="flex items-center justify-between mb-4">
+                          <h4 className="text-sm font-black tracking-tight font-display">Extracted Questions Preview ({stagedQuestions.length})</h4>
+                          <div className="flex items-center space-x-2">
+                            <button
+                              onClick={copyAllStagedToClipboard}
+                              className={`p-2 rounded-lg transition-all cursor-pointer ${copyingAll ? 'bg-emerald-100 text-emerald-600' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30'}`}
+                              title="Copy All Extracted Text"
+                            >
+                              {copyingAll ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                            </button>
+                            
+                            {!isSaving && !importSuccess && (
+                              <button
+                                onClick={saveStagedToBank}
+                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-500/20 cursor-pointer transition uppercase"
+                              >
+                                <Check className="h-4 w-4" />
+                                <span>Confirm & Import</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {isSaving && (
+                          <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 mb-4 animate-pulse">
+                            <div className="flex justify-between items-center mb-2">
+                              <span id="committing-header-status-span" className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center space-x-2">
+                                <span>📦</span>
+                                <span>Committing to Firebase...</span>
+                              </span>
+                              <span id="saving-count-metrics-span" className="text-xs font-mono font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded-md">
+                                {savingProgressCount ? `${savingProgressCount.current} of ${savingProgressCount.total}` : '0 of 0'} questions added
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
+                              <div className="bg-indigo-600 h-full transition-all duration-300" style={{ width: `${savingProgressCount ? (savingProgressCount.current / Math.max(1, savingProgressCount.total)) * 100 : 0}%` }} />
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-2 text-center italic font-sans flex items-center justify-center space-x-1">
+                              <span>Uploading live:</span>
+                              <span className="font-extrabold text-indigo-600 dark:text-indigo-400">{savingProgressCount?.current || 0} currently added out of {savingProgressCount?.total || 0} total questions!</span>
+                            </p>
+                          </div>
+                        )}
+
+                        {importSuccess && (
+                          <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-200 dark:border-emerald-800/50 mb-4 flex items-center space-x-3 text-emerald-700 dark:text-emerald-450 animate-bounce-slow">
+                            <Check className="h-5 w-5 shrink-0" />
+                            <span className="text-xs font-bold">{importSuccess}</span>
+                          </div>
+                        )}
+
+                        <button onClick={() => setStagedQuestions([])} className="self-end text-[10px] font-bold text-slate-400 hover:text-rose-500 hidden sm:block mb-2 cursor-pointer">Clear Queue</button>         
+                        
+                        {stagedQuestions.length > 30 && (
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 font-sans italic bg-slate-100/50 dark:bg-slate-800/50 px-3 py-1.5 rounded-xl border border-slate-200/20 mb-2">
+                             🚀 Large bank detected! Displaying first <strong>30 of {stagedQuestions.length} questions</strong>. All {stagedQuestions.length} are stored in staging memory and will be imported safely.
+                          </div>
+                        )}
+
+                        <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 border border-slate-100 dark:border-slate-800 p-2 rounded-2xl bg-slate-50 dark:bg-slate-900/50">
+                          {stagedQuestions.slice(0, 30).map((q, qIndex) => (
+                            <div key={qIndex} className="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl relative group animate-fade-in text-left">
+                              <div className="absolute top-3 right-3 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
+                                <button onClick={() => deleteStagedItem(qIndex)} className="p-1 rounded-md bg-red-50 text-red-500 dark:bg-red-900/30 hover:bg-red-100 transition cursor-pointer" title="Remove item">
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                              <div className="mb-2 pr-12">
+                                  <FormattedText text={q.questionText} className="text-xs font-bold text-slate-800 dark:text-slate-200 line-clamp-2" />
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                 {q.options.map((opt, optIndex) => (
+                                    <div key={optIndex} className={`text-[10px] px-2 py-1 rounded border truncate flex items-center space-x-1 ${q.correctAnswerIndex === optIndex ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-800/50 dark:text-emerald-300 font-bold' : 'bg-slate-50 border-slate-100 text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400'}`}>
+                                      <span className="opacity-50">{String.fromCharCode(65 + optIndex)}:</span>
+                                      <FormattedText text={opt} className="truncate" />
+                                    </div>
+                                 ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {activeTab === 'notes' && !reviewedAttempt && (
               <StudyNotes isAdmin={isAdminAuthenticated} 
                 isDarkMode={isDarkMode} 
@@ -5678,593 +6304,6 @@ export default function Dashboard() {
             <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] font-black">Empowering Aspirants Worldwide</p>
           </div>
         </footer>
-      )}
-
-      {/* 🏆 DEPARATED EXAM BLUEPRINT CREATOR MODAL */}
-      {isExamCreatorModalOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={() => setIsExamCreatorModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-sm max-w-2xl w-full relative h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-            <button 
-              onClick={() => setIsExamCreatorModalOpen(false)}
-              className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 rounded-xl transition cursor-pointer z-10"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            <div className="overflow-y-auto pr-2 pb-4">
-            <div className="space-y-6 mt-2 text-left font-sans">
-              <h3 className="text-2xl font-black tracking-tight mb-2 flex items-center space-x-2.5 text-slate-900 dark:text-white font-display">
-                <Trophy className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-                <span>Exam Pattern & Blueprint Creator</span>
-              </h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-xl font-medium">
-                Create customized exam formats, configure specific subject quotas, and set timed limits. The configuration will automatically apply to generated practice papers.
-              </p>
-
-              <div className="space-y-5 pt-2">
-                {/* Selector of current config mapping */}
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5 font-sans">Select Exam Pattern to Configure</label>
-                  <select
-                    value={selectedAdminExamId}
-                    onChange={(e) => setSelectedAdminExamId(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-755 px-4 py-3 rounded-xl text-xs font-bold outline-none text-slate-705 dark:text-slate-305"
-                  >
-                    <option value="">-- Create New Standard Pattern --</option>
-                    {examConfigs.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} ({c.durationMinutes} minutes)</option>
-                    ))}
-                  </select>
-                </div>
-
-                {selectedAdminExamId ? (
-                  (() => {
-                    const targetPattern = examConfigs.find(c => c.id === selectedAdminExamId);
-                    if (!targetPattern) return null;
-                    return (
-                      <div className="space-y-4 animate-fade-in bg-slate-50/50 dark:bg-slate-800 p-5 rounded-2xl border border-slate-200/50 dark:border-slate-755">
-                        <div className="flex justify-between items-center pb-2.5 border-b border-slate-200 dark:border-slate-805">
-                          <span className="text-xs font-black text-slate-755 dark:text-slate-300 truncate">{targetPattern.name} Parameter Table</span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteExamConfigFromDB(targetPattern.id)}
-                            className="text-[10px] bg-red-100 hover:bg-red-200 dark:bg-red-955 text-red-650 px-3 py-1.5 rounded-lg font-bold transition"
-                          >
-                            Delete Entire Exam
-                          </button>
-                        </div>
-
-                        {/* Define Total Questions / Stats Widget */}
-                        {(() => {
-                          const totalQs = Object.values(targetPattern.subjectDistribution).reduce((a, b) => a + (b as number), 0);
-                          return (
-                            <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/50 dark:border-indigo-900/45 p-4 rounded-xl flex items-center justify-between">
-                              <div className="text-left">
-                                <span className="block text-[9px] font-black text-indigo-500 uppercase tracking-wider">Total Exam Questions</span>
-                                <span className="text-lg font-extrabold text-indigo-900 dark:text-indigo-400">{totalQs} Qs</span>
-                              </div>
-                              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold max-w-[180px] text-right leading-tight">
-                                Automatically computed based on active subject limits below.
-                              </span>
-                            </div>
-                          );
-                        })()}
-
-                        {/* Grid for Timing and Scoring Marks */}
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          {/* Timing Widget */}
-                          <div className="space-y-1 text-left">
-                            <label className="block text-[9px] font-black text-slate-400 dark:text-slate-505 uppercase tracking-wider">Timing (Minutes)</label>
-                            <input 
-                              type="number"
-                              value={targetPattern.durationMinutes || 60}
-                              onChange={(e) => {
-                                const updated = { ...targetPattern, durationMinutes: Math.max(1, parseInt(e.target.value) || 0) };
-                                const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
-                                setExamConfigs(nextConfigs);
-                                handleUpdateExamConfigOnDB(updated);
-                              }}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-855 dark:text-white"
-                            />
-                          </div>
-
-                          {/* Correct Answer Marks Widget */}
-                          <div className="space-y-1 text-left">
-                            <label className="block text-[9px] font-black text-slate-400 dark:text-slate-505 uppercase tracking-wider">Correct Marks</label>
-                            <input 
-                              type="number"
-                              step="0.1"
-                              value={targetPattern.correctAnswerMarks ?? 4}
-                              onChange={(e) => {
-                                const updated = { ...targetPattern, correctAnswerMarks: parseFloat(e.target.value) || 0 };
-                                const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
-                                setExamConfigs(nextConfigs);
-                                handleUpdateExamConfigOnDB(updated);
-                              }}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-855 dark:text-white"
-                            />
-                          </div>
-
-                          {/* Negative Marking Widget */}
-                          <div className="space-y-1 text-left">
-                            <label className="block text-[9px] font-black text-slate-400 dark:text-slate-505 uppercase tracking-wider">Neg Marks</label>
-                            <input 
-                              type="number"
-                              step="0.01"
-                              value={targetPattern.negativeMarking ?? -1}
-                              onChange={(e) => {
-                                const updated = { ...targetPattern, negativeMarking: parseFloat(e.target.value) || 0 };
-                                const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
-                                setExamConfigs(nextConfigs);
-                                handleUpdateExamConfigOnDB(updated);
-                              }}
-                              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-855 dark:text-white"
-                            />
-                          </div>
-                        </div>
-
-                        {/* Target Exam Deadline Edit Box */}
-                        <div className="space-y-1 text-left">
-                          <label className="block text-[9px] font-black text-slate-400 dark:text-slate-505 uppercase tracking-wider font-sans">Exam Target Deadline (Date)</label>
-                          <input 
-                            type="date"
-                            value={targetPattern.deadline || ""}
-                            onChange={(e) => {
-                              const updated = { ...targetPattern, deadline: e.target.value };
-                              const nextConfigs = examConfigs.map(c => c.id === targetPattern.id ? updated : c);
-                              setExamConfigs(nextConfigs);
-                              handleUpdateExamConfigOnDB(updated);
-                            }}
-                            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-bold outline-none text-slate-855 dark:text-white cursor-pointer"
-                          />
-                          <p className="text-[8px] text-slate-400">Sets the active countdown date displayed on the Home dashboard.</p>
-                        </div>
-
-                        {/* Subjects Distribution List */}
-                        <div className="space-y-1.5 text-left">
-                          <label className="block text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">Active Subject Limits</label>
-                          {Object.entries(targetPattern.subjectDistribution).length === 0 ? (
-                            <p className="text-[10px] text-slate-400 italic py-2">No subject weights mapped. Set custom distributions below.</p>
-                          ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-                              {Object.entries(targetPattern.subjectDistribution).map(([subjKey, valCount]) => (
-                                <div key={subjKey} className="flex justify-between items-center text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2.5 rounded-xl">
-                                  <div className="flex flex-col text-left truncate mr-2">
-                                    <span className="font-bold text-slate-600 dark:text-slate-300 truncate">{subjKey}</span>
-                                    {targetPattern.subjectSources?.[subjKey] && (
-                                      <span className="text-[8.5px] font-semibold text-indigo-500 truncate mt-0.5">
-                                        Source: {targetPattern.subjectSources[subjKey]}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center space-x-1.5 shrink-0">
-                                    <span className="bg-indigo-50 dark:bg-indigo-950 text-indigo-650 dark:text-indigo-400 px-2 py-0.5 rounded-md text-[10px] font-mono font-black">{valCount} Qs</span>
-                                    <button 
-                                      type="button"
-                                      onClick={() => handleDeleteSubjectFromConfig(subjKey)}
-                                      className="text-slate-400 hover:text-red-500 p-1 hover:bg-rose-50 dark:hover:bg-rose-955 rounded transition"
-                                      title="Delete mapped subject"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Add subject weight parameters form */}
-                        <div className="border-t border-slate-205 dark:border-slate-755 pt-3.5 space-y-2.5 text-left">
-                          <span className="text-[9px] font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-widest block font-sans">Add/Update Pattern Subject</span>
-                          
-                          <div className="grid grid-cols-2 gap-2.5">
-                            <div>
-                              <label className="block text-[8px] font-bold text-slate-400 uppercase mb-1">Subject Label</label>
-                              <input 
-                                type="text"
-                                placeholder="Subject (e.g. Science)"
-                                value={newConfigSubject}
-                                onChange={(e) => setNewConfigSubject(e.target.value)}
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-755 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-855 dark:text-white"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[8px] font-bold text-slate-400 uppercase mb-1">Max Questions</label>
-                              <input 
-                                type="number"
-                                placeholder="e.g. 20"
-                                value={newConfigCount}
-                                onChange={(e) => setNewConfigCount(Math.max(1, parseInt(e.target.value) || 0))}
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-755 px-3 py-2 rounded-xl text-xs font-bold outline-none text-slate-855 dark:text-white"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Subject Question Source Dropdown */}
-                          <div>
-                            <label className="block text-[8px] font-bold text-slate-400 uppercase mb-1">Question Source / Filter Tag (Optional)</label>
-                            <div className="relative">
-                              <select
-                                value={newConfigSubjectSource}
-                                onChange={(e) => setNewConfigSubjectSource(e.target.value)}
-                                className="w-full bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-755 px-3 py-2.5 rounded-xl text-xs font-bold outline-none text-slate-705 dark:text-slate-305 appearance-none cursor-pointer"
-                              >
-                                <option value="">-- All Sources / Any Tag --</option>
-                                {availableSourceTags.map(tag => (
-                                  <option key={tag} value={tag}>{tag}</option>
-                                ))}
-                              </select>
-                              <ChevronDown className="absolute right-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={handleAddSubjectToConfig}
-                            className="w-full py-2.5 bg-indigo-650 hover:bg-indigo-700 text-white font-extrabold text-[10px] uppercase rounded-xl shadow-md tracking-wider transition active:scale-95 text-center cursor-pointer"
-                          >
-                            Save Subject Layout Spec
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })()
-                ) : (
-                  /* Create New Exam Form */
-                  <form onSubmit={handleCreateNewExamConfig} className="bg-indigo-50/20 dark:bg-indigo-950/10 p-5 rounded-2xl border border-indigo-150/50 space-y-4 animate-fade-in text-left">
-                    <span className="text-[10px] font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-widest block text-left font-sans">New Exam Pattern Initial Specs</span>
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase mb-1 font-sans">Exam Blueprint Name</label>
-                      <input 
-                        type="text"
-                        placeholder="e.g. NEET UG Mock 2026"
-                        value={newExamName}
-                        onChange={(e) => setNewExamName(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold font-sans outline-none text-slate-855 dark:text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase mb-1 font-sans">Exam Timer Limit (Minutes)</label>
-                      <input 
-                        type="number"
-                        placeholder="60"
-                        value={newExamDuration}
-                        onChange={(e) => setNewExamDuration(Math.max(1, parseInt(e.target.value) || 0))}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-755 px-4 py-2.5 rounded-xl text-xs font-bold font-sans outline-none text-slate-855 dark:text-white"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[9px] font-black text-slate-400 uppercase mb-1 font-sans">Exam Target Deadline (Date)</label>
-                      <input 
-                        type="date"
-                        value={newExamDeadline}
-                        onChange={(e) => setNewExamDeadline(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-755 px-4 py-2.5 rounded-xl text-xs font-bold font-sans outline-none text-slate-855 dark:text-white cursor-pointer"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[9px] font-black text-slate-400 uppercase mb-1 font-sans">Correct Marks</label>
-                        <input 
-                          type="number"
-                          step="0.1"
-                          value={newExamCorrectAnswerMarks}
-                          onChange={(e) => setNewExamCorrectAnswerMarks(parseFloat(e.target.value) || 0)}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-755 px-4 py-2.5 rounded-xl text-xs font-bold font-sans outline-none text-slate-855 dark:text-white"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] font-black text-slate-400 uppercase mb-1 font-sans">Negative Marks</label>
-                        <input 
-                          type="number"
-                          step="0.01"
-                          value={newExamNegativeMarking}
-                          onChange={(e) => setNewExamNegativeMarking(parseFloat(e.target.value) || 0)}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-755 px-4 py-2.5 rounded-xl text-xs font-bold font-sans outline-none text-slate-855 dark:text-white"
-                        />
-                      </div>
-                    </div>
-                    <button
-                      type="submit"
-                      className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase rounded-xl shadow-lg tracking-widest transition cursor-pointer"
-                    >
-                      ➕ REGISTER NEW EXAM PATTERN
-                    </button>
-                  </form>
-                )}
-              </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isUploadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={() => setIsUploadModalOpen(false)}>
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-[2.5rem] p-8 shadow-2xl max-w-4xl w-full relative h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-            
-            <button 
-              onClick={() => setIsUploadModalOpen(false)}
-              className="absolute top-6 right-6 p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 rounded-xl transition cursor-pointer z-10"
-            >
-              <X className="h-5 w-5" />
-            </button>
-            <div className="space-y-6 mt-2 overflow-y-auto pr-2 pb-4">
-              <h3 className="text-2xl font-black tracking-tight mb-2 flex items-center space-x-2 text-slate-900 dark:text-white font-display">
-                <FileCode className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-                <span>Advanced Question Bank Uploader</span>
-              </h3>
-              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl font-medium">
-                Drag and drop your HTML mock exams, structured JSON lists, or plain text TXT files. Our resilient parsing engine will instantly extract questions, options, and keys into format-ready banks.
-              </p>
-
-              <div 
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-                onClick={() => !uploadProgress && fileInputRef.current?.click()}
-                className={`mt-4 border-2 border-dashed border-indigo-100 dark:border-indigo-950/80 hover:border-indigo-600 dark:hover:border-indigo-500/50 bg-slate-50/30 dark:bg-slate-900/40 rounded-[2rem] p-10 text-center transition-all group ${uploadProgress ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
-              >
-                <input 
-                  type="file" 
-                  accept=".html, .htm, .json, .txt" 
-                  ref={fileInputRef} 
-                  onChange={handleFileUpload} 
-                  multiple
-                  className="hidden" 
-                />
-                {uploadProgress ? (
-                  <div className="flex flex-col items-center justify-center space-y-4 py-2">
-                    <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-                    <div className="text-sm font-black text-slate-700 dark:text-slate-300 font-display">
-                      Processing {uploadProgress.current} of {uploadProgress.total} file(s)...
-                    </div>
-                    <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400">
-                      {uploadProgress.questionsFound} potential questions extracted so far
-                    </div>
-                    <div className="w-full max-w-xs bg-slate-200 dark:bg-slate-800 rounded-full h-2">
-                      <div className="bg-indigo-600 h-2 rounded-full transition-all duration-300 mx-auto" style={{ width: `${Math.max(5, (uploadProgress.current / Math.max(1, uploadProgress.total)) * 100)}%` }}></div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="py-4 font-sans">
-                    <div className="mx-auto w-16 h-16 mb-4 rounded-full bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center border border-indigo-100/60 dark:border-indigo-900/40 group-hover:scale-105 group-hover:bg-indigo-100/50 dark:group-hover:bg-indigo-900/60 transition-all duration-300 shadow-sm">
-                      <UploadCloud className="h-7 w-7 text-indigo-500 dark:text-indigo-400 group-hover:text-indigo-600 transition-colors shrink-0" />
-                    </div>
-                    <span className="text-sm font-extrabold block mb-1.5 text-slate-700 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors font-display tracking-tight">
-                      Drag & Drop HTML, JSON, or TXT Files Here
-                    </span>
-                    <span className="text-xs text-slate-400 dark:text-slate-500 block max-w-lg mx-auto leading-relaxed">
-                      Accepts bulk <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[10px] text-indigo-500 font-extrabold">.html</code>, <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[10px] text-indigo-500 font-extrabold">.json</code>, or <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-[10px] text-indigo-500 font-extrabold">.txt</code> files.
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {uploadError && (
-                <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 text-red-650 dark:text-red-400 text-xs rounded-xl flex items-start space-x-2">
-                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                  <div>
-                    <span className="font-bold">Extraction Info:</span>
-                    <p className="mt-0.5">{uploadError}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Dynamic / Persistent Target Subject Selector Dropdown Module */}
-              <div className="pt-4 space-y-3">
-                <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1 uppercase font-display">Target Subject Tag (Fixed Selection)</label>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                   <div className="relative flex-1">
-                     <select
-                       value={stagingSubject}
-                       onChange={(e) => handleUpdateStagingSubject(e.target.value)}
-                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3.5 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100"
-                     >
-                       {subjectTagsList.map((tag) => (
-                         <option key={tag} value={tag} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100">{tag}</option>
-                       ))}
-                     </select>
-                     <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                   </div>
-                   <div className="flex items-center gap-2 flex-1">
-                     <input
-                       type="text"
-                       placeholder="Enter new custom tag..."
-                       id="bulk-custom-tag-input"
-                       className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3.5 py-2.5 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
-                       onKeyDown={async (e) => {
-                         if (e.key === 'Enter') {
-                           e.preventDefault();
-                           const targetValue = (e.currentTarget as HTMLInputElement).value.trim();
-                           if (!targetValue) return;
-                           if (subjectTagsList.includes(targetValue)) {
-                             handleUpdateStagingSubject(targetValue);
-                             (e.currentTarget as HTMLInputElement).value = "";
-                             return;
-                           }
-                           const updatedTags = [...subjectTagsList, targetValue];
-                           setSubjectTagsList(updatedTags);
-                           safeLocalStorageSetItem('MOCK_SUBJECT_TAGS', JSON.stringify(updatedTags));
-                           handleUpdateStagingSubject(targetValue);
-                           (e.currentTarget as HTMLInputElement).value = "";
-                           if (isOnline) {
-                             try {
-                               await setDoc(doc(db, "db_metadata", "subject_tags"), {
-                                 tags: updatedTags,
-                                 updatedAt: new Date().toISOString()
-                               });
-                               trackFirestoreWrite(1);
-                             } catch (err) {
-                               console.error("Failed to sync tags:", err);
-                             }
-                           }
-                         }
-                       }}
-                     />
-                     <button
-                       type="button"
-                       onClick={async () => {
-                         const el = document.getElementById('bulk-custom-tag-input') as HTMLInputElement;
-                         const targetValue = el ? el.value.trim() : "";
-                         if (!targetValue) return;
-                         if (subjectTagsList.includes(targetValue)) {
-                           handleUpdateStagingSubject(targetValue);
-                           el.value = "";
-                           return;
-                         }
-                         const updatedTags = [...subjectTagsList, targetValue];
-                         setSubjectTagsList(updatedTags);
-                         safeLocalStorageSetItem('MOCK_SUBJECT_TAGS', JSON.stringify(updatedTags));
-                         handleUpdateStagingSubject(targetValue);
-                         el.value = "";
-                         if (isOnline) {
-                           try {
-                             await setDoc(doc(db, "db_metadata", "subject_tags"), {
-                               tags: updatedTags,
-                               updatedAt: new Date().toISOString()
-                             });
-                             trackFirestoreWrite(1);
-                           } catch (err) {
-                             console.error("Failed to sync tags:", err);
-                           }
-                         }
-                       }}
-                       className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shrink-0 uppercase tracking-wider font-sans shadow-md"
-                     >
-                       + Append Tag
-                     </button>
-                   </div>
-                </div>
-                <p className="text-[10px] text-slate-400">
-                  These files will map to <strong className="text-indigo-500 font-bold">{stagingSubject}</strong>. (Type in the box above and hit Enter or click Append to create new tags dynamically).
-                </p>
-              </div>
-
-              {/* Dynamic Target Topic Input Module */}
-              <div className="pt-2">
-                <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1.5 uppercase font-display">Target Topic Name (Optional)</label>
-                <input
-                  type="text"
-                  value={stagingTopic}
-                  onChange={(e) => setStagingTopic(e.target.value)}
-                  placeholder="e.g., Electrostatics, Ancient History, Trigonometry..."
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-slate-900 dark:text-slate-100 placeholder:text-slate-400"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  If set, this topic will be injected into all uploaded questions automatically to help organize your question bank.
-                </p>
-              </div>
-
-
-              {/* Target Exam PYQ Module */}
-              <div className="pt-2">
-                <label className="text-xs font-black text-slate-400 dark:text-slate-500 block mb-1.5 uppercase font-display">Target Exam (PYQ Linking)</label>
-                <div className="relative">
-                  <select
-                    value={stagingTargetExam}
-                    onChange={(e) => setStagingTargetExam(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3 rounded-xl text-xs font-bold appearance-none outline-none focus:ring-2 focus:ring-indigo-500/20 text-indigo-700 dark:text-indigo-300"
-                  >
-                    <option value="">No Exam Attached (General Bank)</option>
-                    {examConfigs.map(config => (
-                      <option key={config.id} value={config.sourceExamTag}>{config.name} ({config.sourceExamTag})</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-500 pointer-events-none" />
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Attach these questions as Previous Year Questions (PYQ) to a specific target exam format.
-                </p>
-              </div>
-              {/* Staging Render */}
-              {stagedQuestions.length > 0 && (
-                <div className="mt-6 border-t border-slate-100 dark:border-slate-800 pt-6 animate-fade-in">
-                  <div className="flex items-center justify-between mb-4">
-                    <h4 className="text-sm font-black tracking-tight">Extracted Questions Preview ({stagedQuestions.length})</h4>
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={copyAllStagedToClipboard}
-                        className={`p-2 rounded-lg transition-all cursor-pointer ${copyingAll ? 'bg-emerald-100 text-emerald-600' : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/30'}`}
-                        title="Copy All Extracted Text"
-                      >
-                        {copyingAll ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                      </button>
-                      
-                      {!isSaving && !importSuccess && (
-                        <button
-                          onClick={saveStagedToBank}
-                          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center space-x-2 shadow-lg shadow-emerald-500/20 cursor-pointer transition uppercase"
-                        >
-                          <Check className="h-4 w-4" />
-                          <span>Confirm & Import</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {isSaving && (
-                    <div className="bg-slate-50 dark:bg-slate-800 p-4 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 mb-4 animate-pulse">
-                      <div className="flex justify-between items-center mb-2">
-                        <span id="committing-header-status-span" className="text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest flex items-center space-x-2">
-                          <span>📦</span>
-                          <span>Committing to Firebase...</span>
-                        </span>
-                        <span id="saving-count-metrics-span" className="text-xs font-mono font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-2 py-0.5 rounded-md">
-                          {savingProgressCount ? `${savingProgressCount.current} of ${savingProgressCount.total}` : '0 of 0'} questions added
-                        </span>
-                      </div>
-                      <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
-                        <div className="bg-indigo-600 h-full transition-all duration-300" style={{ width: `${savingProgressCount ? (savingProgressCount.current / Math.max(1, savingProgressCount.total)) * 100 : 0}%` }} />
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-2 text-center italic font-sans flex items-center justify-center space-x-1">
-                        <span>Uploading live:</span>
-                        <span className="font-extrabold text-indigo-600 dark:text-indigo-400">{savingProgressCount?.current || 0} currently added out of {savingProgressCount?.total || 0} total questions!</span>
-                      </p>
-                    </div>
-                  )}
-
-                  {importSuccess && (
-                    <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-2xl border border-emerald-200 dark:border-emerald-800/50 mb-4 flex items-center space-x-3 text-emerald-700 dark:text-emerald-400 animate-bounce-slow">
-                      <Check className="h-5 w-5 shrink-0" />
-                      <span className="text-xs font-bold">{importSuccess}</span>
-                    </div>
-                  )}
-
-                  <button onClick={() => setStagedQuestions([])} className="self-end text-[10px] font-bold text-slate-400 hover:text-rose-500 hidden sm:block mb-2">Clear Queue</button>         
-                  
-                  {stagedQuestions.length > 30 && (
-                    <div className="text-[10px] text-slate-500 dark:text-slate-400 font-sans italic bg-slate-100/50 dark:bg-slate-800/50 px-3 py-1.5 rounded-xl border border-slate-200/20 mb-2">
-                       🚀 Large bank detected! Displaying first <strong>30 of {stagedQuestions.length} questions</strong>. All {stagedQuestions.length} are stored in staging memory and will be imported safely.
-                    </div>
-                  )}
-
-                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 border border-slate-100 dark:border-slate-800 p-2 rounded-2xl bg-slate-50 dark:bg-slate-900/50">
-                    {stagedQuestions.slice(0, 30).map((q, qIndex) => (
-                      <div key={qIndex} className="p-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl relative group animate-fade-in">
-                        <div className="absolute top-3 right-3 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition">
-                          <button onClick={() => deleteStagedItem(qIndex)} className="p-1 rounded-md bg-red-50 text-red-500 dark:bg-red-900/30 hover:bg-red-100 transition cursor-pointer" title="Remove item">
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                        <div className="mb-2 pr-12">
-                            <FormattedText text={q.questionText} className="text-xs font-bold text-slate-800 dark:text-slate-200 line-clamp-2" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                           {q.options.map((opt, optIndex) => (
-                              <div key={optIndex} className={`text-[10px] px-2 py-1 rounded border truncate flex items-center space-x-1 ${q.correctAnswerIndex === optIndex ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-800/50 dark:text-emerald-300 font-bold' : 'bg-slate-50 border-slate-100 text-slate-600 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400'}`}>
-                                <span className="opacity-50">{String.fromCharCode(65 + optIndex)}:</span>
-                                <FormattedText text={opt} className="truncate" />
-                              </div>
-                           ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
