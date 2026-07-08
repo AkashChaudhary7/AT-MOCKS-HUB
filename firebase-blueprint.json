@@ -1,0 +1,109 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account configurations, goals, stats, and assigned exams.",
+      "type": "object",
+      "properties": {
+        "username": {
+          "type": "string",
+          "description": "The unique, lowercased username of the student or admin."
+        },
+        "passcode": {
+          "type": "string",
+          "description": "A 4-digit PIN passcode used for authentication."
+        },
+        "slotIndex": {
+          "type": "integer",
+          "description": "The unique slot index (0, 1, 2) assigned to the profile."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last update timestamp."
+        },
+        "dailyGoal": {
+          "type": "object",
+          "description": "Daily question goal and streak statistics."
+        },
+        "assignedExam": {
+          "type": "object",
+          "description": "Custom assigned exam configurations and limits from the admin."
+        }
+      },
+      "required": ["username", "passcode", "slotIndex"]
+    },
+    "TestAttempt": {
+      "title": "Test Attempt",
+      "description": "A record of an exam or quiz attempt completed by a student.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the attempt."
+        },
+        "date": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Date of the attempt."
+        },
+        "score": {
+          "type": "number",
+          "description": "Numerical score achieved."
+        },
+        "totalQuestions": {
+          "type": "integer",
+          "description": "Total number of questions in the test."
+        },
+        "subject": {
+          "type": "string",
+          "description": "The subject category of the attempt."
+        }
+      },
+      "required": ["id", "date", "score", "totalQuestions", "subject"]
+    },
+    "FlaggedQuestion": {
+      "title": "Flagged Question",
+      "description": "A question flagged by students due to formatting or font display issues.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique ID of the question."
+        },
+        "questionText": {
+          "type": "string",
+          "description": "Question content text."
+        },
+        "options": {
+          "type": "array",
+          "description": "List of available answer choices."
+        },
+        "correctAnswerIndex": {
+          "type": "integer",
+          "description": "Index of the correct choice."
+        }
+      },
+      "required": ["id", "questionText", "options", "correctAnswerIndex"]
+    }
+  },
+  "firestore": {
+    "/users/{username}": {
+      "schema": "User",
+      "description": "Top-level profiles of registered students and admins."
+    },
+    "/users/{username}/attempts/{attemptId}": {
+      "schema": "TestAttempt",
+      "description": "Subcollection storing historic mock test attempts for each student."
+    },
+    "/flagged_questions/{questionId}": {
+      "schema": "FlaggedQuestion",
+      "description": "Collection of questions with reported display errors."
+    }
+  }
+}
