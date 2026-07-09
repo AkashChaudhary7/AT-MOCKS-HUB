@@ -12,6 +12,7 @@ interface MockTestInterfaceProps {
   onFinish: (attempt: TestAttempt) => void;
   onCancel: () => void;
   isDarkMode: boolean;
+  onFlagQuestion?: (question: Question) => Promise<void>;
 }
 
 export default function MockTestInterface({
@@ -20,6 +21,7 @@ export default function MockTestInterface({
   onFinish,
   onCancel,
   isDarkMode,
+  onFlagQuestion,
 }: MockTestInterfaceProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<(number | null)[]>(
@@ -124,6 +126,7 @@ export default function MockTestInterface({
       subject: settings.subject,
       date: new Date().toISOString(),
       score: calculatedScore,
+      maxScore: maxScore,
       scorePercentage: scorePercentage,
       totalQuestions: questions.length,
       correctCount,
@@ -332,8 +335,28 @@ export default function MockTestInterface({
                   <span>Prev</span>
                </button>
                
-               <button className="flex items-center space-x-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-50 border border-rose-100 text-rose-600 dark:bg-rose-900/20 dark:border-rose-900/50 dark:text-rose-400">
-                  <Flag className="h-3.5 w-3.5" />
+               <button 
+                  onClick={async () => {
+                     if (!window.confirm("Bhai, kya aap sach mein is question ko Font Error ke roop mein flag karna chahte hain?")) return;
+                     try {
+                        if (onFlagQuestion) {
+                           await onFlagQuestion(currentQuestion);
+                           alert("Done! Question ko Font Error ke roop mein flag karke admin queue mein bhej diya gaya hai!");
+                           if (currentIndex < questions.length - 1) {
+                              setCurrentIndex(prev => prev + 1);
+                           } else if (questions.length > 1) {
+                              setCurrentIndex(prev => prev - 1);
+                           }
+                        } else {
+                           alert("Error: Flagging callback is not registered.");
+                        }
+                     } catch (err) {
+                        alert("Failed to flag question: " + (err instanceof Error ? err.message : String(err)));
+                     }
+                  }}
+                  className="flex items-center space-x-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-rose-50 border border-rose-100 text-rose-600 dark:bg-rose-900/20 dark:border-rose-900/50 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors cursor-pointer"
+               >
+                  <Flag className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
                   <span>FONT ERROR</span>
                </button>
                

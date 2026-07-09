@@ -1373,8 +1373,8 @@ export default function Dashboard() {
     setQuotaTestResult(null);
     try {
       // Small query to trigger/test Firestore response
-      const testDoc = await getDocs(query(collection(db, "db_metadata")));
-      trackFirestoreRead(testDoc.size || 1);
+      const testDoc = await getDoc(doc(db, "db_metadata", "system"));
+      trackFirestoreRead(1);
       
       setIsQuotaExceeded(false);
       setQuotaTestResult({
@@ -1636,6 +1636,14 @@ export default function Dashboard() {
         });
         return next;
       });
+
+      // Save compiled questions to local IndexedDB high-speed cache to avoid fetching on reloads
+      try {
+        await saveQuestionsToIndexedDB(compiledList);
+        console.log(`✓ Saved ${compiledList.length} questions into local IndexedDB cache.`);
+      } catch (dbErr) {
+        console.error("Failed to write to local IndexedDB:", dbErr);
+      }
       
       if (cloudLastUpdated) {
         localStorage.setItem('MOCK_LAST_SYNCED_TIME', cloudLastUpdated);
@@ -1668,17 +1676,15 @@ export default function Dashboard() {
       let cloudLastUpdated = '';
       
       try {
-        const systemDoc = await getDocs(query(collection(db, "db_metadata")));
-        trackFirestoreRead(systemDoc.empty ? 1 : systemDoc.size);
-        if (!systemDoc.empty) {
-          const sysDoc = systemDoc.docs.find(d => d.id === "system");
-          const sysData = sysDoc ? sysDoc.data() : null;
-          if (sysData) {
-            cloudLastUpdated = sysData.lastUpdated || '';
-          }
+        // Optimized to single document getDoc instead of querying full db_metadata collection
+        const systemDoc = await getDoc(doc(db, "db_metadata", "system"));
+        trackFirestoreRead(1);
+        if (systemDoc.exists()) {
+          const sysData = systemDoc.data();
+          cloudLastUpdated = sysData?.lastUpdated || '';
         }
       } catch (e) {
-        console.warn("Could not query metadata document:", e);
+        console.warn("Could not retrieve system metadata document:", e);
       }
       
       if (!forcePull && cloudLastUpdated && cloudLastUpdated === localLastSynced) {
@@ -1728,12 +1734,48 @@ export default function Dashboard() {
   // Directly load question bundles and exam configurations from Firebase on initialization
   useEffect(() => {
     const initQuestionsAndConfigs = async () => {
-      if (isOnline) {
-        try {
-          await loadChunks();
-        } catch (err) {
-          console.error("Failed to load chunks from Firebase on init:", err);
+      // 1. Load from fast local IndexedDB cache first
+      let cachedQs: Question[] = [];
+      try {
+        cachedQs = await getCachedQuestions();
+        if (cachedQs && cachedQs.length > 0) {
+          setQuestions(cachedQs);
+          console.log(`🚀 Loaded ${cachedQs.length} questions from fast local IndexedDB cache.`);
+        } else {
           setQuestions(SAMPLE_QUESTIONS);
+        }
+      } catch (cacheErr) {
+        console.warn("Failed to load from local IndexedDB cache:", cacheErr);
+        setQuestions(SAMPLE_QUESTIONS);
+      }
+
+      if (isOnline) {
+        // 2. Check system metadata to see if cloud contains new updates
+        let needsLoad = true;
+        let cloudLastUpdated = '';
+        const localLastSynced = localStorage.getItem('MOCK_LAST_SYNCED_TIME') || '2000-01-01T00:00:00.000Z';
+        
+        try {
+          const systemDoc = await getDoc(doc(db, "db_metadata", "system"));
+          trackFirestoreRead(1);
+          if (systemDoc.exists()) {
+            const sysData = systemDoc.data();
+            cloudLastUpdated = sysData?.lastUpdated || '';
+            if (cachedQs.length > 0 && cloudLastUpdated && localLastSynced !== 'bootstrap' && localLastSynced >= cloudLastUpdated) {
+              needsLoad = false;
+              console.log(`📦 Local questions cache is fully up-to-date (Local: ${localLastSynced} >= Cloud: ${cloudLastUpdated}). Saved 100% of questions chunks reads!`);
+            }
+          }
+        } catch (metaErr) {
+          console.warn("Could not retrieve system metadata. Defaulting to force pull chunks:", metaErr);
+        }
+
+        if (needsLoad) {
+          try {
+            await loadChunks(undefined, cloudLastUpdated);
+          } catch (err) {
+            console.error("Failed to load chunks from Firebase on init:", err);
+          }
         }
         
         // Sync the deleted_configs from Firestore first
@@ -1784,7 +1826,9 @@ export default function Dashboard() {
         }
       } else {
         console.log("Offline mode: Bootstrapping with sample question bank.");
-        setQuestions(SAMPLE_QUESTIONS);
+        if (cachedQs.length === 0) {
+          setQuestions(SAMPLE_QUESTIONS);
+        }
       }
     };
     initQuestionsAndConfigs();
@@ -1945,6 +1989,13 @@ export default function Dashboard() {
       return;
     }
     setQuestions(newQList);
+    try {
+      await clearQuestionsIndexedDB();
+      await saveQuestionsToIndexedDB(newQList);
+      console.log("✓ Saved updated question pool to IndexedDB.");
+    } catch (dbErr) {
+      console.error("Failed to save updated pool to IndexedDB:", dbErr);
+    }
   };
 
   const rebuildCloudQuestionsChunks = async (
@@ -2593,16 +2644,13 @@ export default function Dashboard() {
         }
 
         const baseCount = targetCount as number;
-        
-        // ±2 deviation offset selector
-        const randomOffset = Math.floor(Math.random() * 5) - 2; // -2, -1, 0, +1, +2
-        const actualCountNeeded = Math.max(0, baseCount + randomOffset);
+        const actualCountNeeded = baseCount; // Strict question count as per exam rules, no random offset
 
         if (subjectQs.length > 0) {
           const shuffledSub = [...subjectQs].sort(() => 0.5 - Math.random());
           const selectedSub = shuffledSub.slice(0, Math.min(actualCountNeeded, shuffledSub.length));
           compiledList = [...compiledList, ...selectedSub];
-          statsReport.push(`${subjectName}: ${selectedSub.length} questions (target: ${baseCount}, source: ${subjectSourceTag || 'Any'}, offset: ${randomOffset >= 0 ? '+' : ''}${randomOffset})`);
+          statsReport.push(`${subjectName}: ${selectedSub.length} questions (target: ${baseCount}, source: ${subjectSourceTag || 'Any'})`);
         } else {
           statsReport.push(`${subjectName}: 0 questions (No matching subject cached for source: ${subjectSourceTag || 'Any'})`);
         }
@@ -2613,8 +2661,40 @@ export default function Dashboard() {
         return;
       }
 
-      // Shuffle final compiled list so subjects are distributed throughout the exam
-      compiledList.sort(() => 0.5 - Math.random());
+      // Sort compiled list so that questions follow a strict subject-wise sequence:
+      // GS, REASONING, QUANTS, ENGLISH, HINDI, then others (COMPUTER, TEACHING, etc.)
+      const getSubjectPriority = (subName?: string): number => {
+        if (!subName) return 999;
+        const s = subName.toLowerCase().trim();
+        if (s.includes("gs") || s.includes("gk") || s.includes("general studies") || s.includes("general knowledge") || s.includes("general awareness")) {
+          return 0;
+        }
+        if (s.includes("reasoning") || s.includes("mental ability")) {
+          return 1;
+        }
+        if (s.includes("quant") || s.includes("math")) {
+          return 2;
+        }
+        if (s.includes("english")) {
+          return 3;
+        }
+        if (s.includes("hindi")) {
+          return 4;
+        }
+        if (s.includes("computer")) {
+          return 5;
+        }
+        if (s.includes("teaching")) {
+          return 6;
+        }
+        return 100; // other subjects
+      };
+
+      compiledList.sort((a, b) => {
+        const pA = getSubjectPriority(a.subject);
+        const pB = getSubjectPriority(b.subject);
+        return pA - pB;
+      });
 
       const settings: QuizSettings = {
         questionCount: compiledList.length,
@@ -3005,6 +3085,28 @@ export default function Dashboard() {
     
     setActiveQuizQuestions(null);
     setActiveQuizSettings(null);
+  };
+
+  const handleFlagQuestion = async (q: Question) => {
+    try {
+      if (isOnline) {
+        await setDoc(doc(db, "flagged_questions", q.id), {
+          ...q,
+          flaggedAt: new Date().toISOString(),
+          flaggedBy: currentUser || 'anonymous'
+        });
+      } else {
+        alert("Aap offline hain! Flagged question ko cloud sync ke bina flag nahi kiya ja sakta.");
+        return;
+      }
+
+      // Remove the flagged question from the active questions list
+      const remaining = questions.filter(item => item.id !== q.id);
+      await saveQuestionsToDB(remaining);
+    } catch (err) {
+      console.error("Failed to flag question as font error:", err);
+      throw err;
+    }
   };
 
   const handleScanAndPurgeDuplicates = async () => {
@@ -3407,6 +3509,7 @@ export default function Dashboard() {
           setActiveQuizSettings(null);
         }}
         isDarkMode={isDarkMode}
+        onFlagQuestion={handleFlagQuestion}
       />
     );
   }
@@ -3751,13 +3854,13 @@ export default function Dashboard() {
                   
                   {/* Score circle */}
                   <div className="text-center shrink-0">
-                     <div className={`h-20 w-20 rounded-full flex flex-col items-center justify-center font-bold text-lg border-4 ${
+                     <div className={`h-22 w-22 rounded-full flex flex-col items-center justify-center font-bold text-sm border-4 ${
                       reviewedAttempt.scorePercentage >= 80 ? 'border-emerald-500 text-emerald-500 bg-emerald-500/5' : 
                       reviewedAttempt.scorePercentage >= 50 ? 'border-amber-500 text-amber-500 bg-amber-500/5' : 
                       'border-red-500 text-red-500 bg-red-500/5'
                     }`}>
-                      <span>{reviewedAttempt.scorePercentage}%</span>
-                      <span className="text-[9px] text-slate-400 font-medium -mt-1">SCORE</span>
+                      <span>{reviewedAttempt.score}</span>
+                      <span className="text-[9px] text-slate-400 font-medium border-t border-slate-150/40 dark:border-slate-800/40 px-1 mt-0.5 pt-0.5">/ {reviewedAttempt.maxScore ?? (reviewedAttempt.totalQuestions * 4)}</span>
                      </div>
                   </div>
                 </div>
@@ -4016,11 +4119,22 @@ export default function Dashboard() {
 
                     const examAttempts = attempts.filter(att => att.subject === selectedExam.name);
                     const examTotalTests = examAttempts.length;
+
+                    const examAvgScore = examTotalTests > 0 
+                      ? Math.round(examAttempts.reduce((sum, att) => sum + att.score, 0) / examTotalTests)
+                      : 0;
+
+                    const examAvgMaxScore = examTotalTests > 0 
+                      ? Math.round(examAttempts.reduce((sum, att) => sum + (att.maxScore ?? (att.totalQuestions * (selectedExam.correctAnswerMarks ?? 4))), 0) / examTotalTests)
+                      : 100; // default base if no tests yet
+
+                    const examTargetScore = targetScores[selectedExam.id] || 80;
+                    const targetScoreInMarks = Math.round((examTargetScore / 100) * examAvgMaxScore);
+
                     const examAvgAccuracy = examTotalTests > 0 
                       ? Math.round(examAttempts.reduce((sum, att) => sum + att.scorePercentage, 0) / examTotalTests)
                       : 0;
 
-                    const examTargetScore = targetScores[selectedExam.id] || 80;
                     const progressPercentage = examTargetScore > 0 
                       ? Math.min(100, Math.round((examAvgAccuracy / examTargetScore) * 100))
                       : 0;
@@ -4035,7 +4149,7 @@ export default function Dashboard() {
                           <div className="flex items-center space-x-1 bg-indigo-50/70 dark:bg-indigo-950/20 px-2.5 py-0.5 rounded-lg border border-indigo-100/40 dark:border-indigo-900/40 text-[9px]">
                             <Target className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                             <span className="font-extrabold text-indigo-600 dark:text-indigo-400">
-                              Goal: {examTargetScore}%
+                              Goal: {targetScoreInMarks} / {examAvgMaxScore}
                             </span>
                           </div>
                         </div>
@@ -4049,7 +4163,7 @@ export default function Dashboard() {
                             {/* Combined Single Line Stats */}
                             <div className="flex items-center justify-between text-[10px] font-bold text-slate-600 dark:text-slate-300">
                               <span className="flex items-center gap-1">
-                                Avg Score: <span className="text-indigo-650 dark:text-indigo-400 font-extrabold font-mono">{examAvgAccuracy}%</span>
+                                Avg Score: <span className="text-indigo-650 dark:text-indigo-400 font-extrabold font-mono">{examAvgScore} / {examAvgMaxScore}</span>
                               </span>
                               <span className="flex items-center gap-1">
                                 Progress: <span className="text-emerald-500 font-extrabold font-mono">{progressPercentage}%</span>
@@ -4068,7 +4182,7 @@ export default function Dashboard() {
 
                         {/* Interactive Slider to Set Target - Minimized inline */}
                         <div className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-                          <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider">Set Target: {examTargetScore}%</span>
+                          <span className="text-[8.5px] font-black text-slate-400 uppercase tracking-wider">Set Target: {targetScoreInMarks} Marks ({examTargetScore}%)</span>
                           <input 
                             type="range" 
                             min="50" 
@@ -5595,7 +5709,7 @@ export default function Dashboard() {
                                     att.scorePercentage >= 80 ? 'bg-emerald-500/10 text-emerald-500' :
                                     att.scorePercentage >= 50 ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'
                                   }`}>
-                                    {att.scorePercentage}%
+                                    {att.score} / {att.maxScore ?? (att.totalQuestions * 4)}
                                   </span>
                                 </td>
                                 <td className="py-3 px-2 text-center text-[11px] font-mono text-slate-400">
@@ -5961,8 +6075,8 @@ export default function Dashboard() {
                                   </div>
                                   
                                   <div className="text-right">
-                                    <span className="text-base font-black text-indigo-600 dark:text-indigo-400 font-display block">
-                                      {att.scorePercentage}%
+                                    <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-display block">
+                                      {att.score} / {att.maxScore ?? (att.totalQuestions * 4)}
                                     </span>
                                     <span className="text-[9px] font-bold text-slate-400">
                                       {att.correctCount}/{att.totalQuestions} Correct
