@@ -1638,21 +1638,60 @@ export default function Dashboard() {
   // Define chunk loader
   const loadChunks = useCallback(async (examTagFilter?: string, cloudLastUpdated?: string) => {
     console.log(`High-Speed Bundle Loader: Querying pre-compiled database chunks${examTagFilter ? ` for tag: ${examTagFilter}` : ''}...`);
-    let q;
-    if (examTagFilter) {
-       q = query(collection(db, "questions_chunks"), where("examTags", "array-contains", examTagFilter.toLowerCase().trim()));
-    } else {
-       q = query(collection(db, "questions_chunks"));
-    }
-    const chunkSnap = await getDocs(q);
-    trackFirestoreRead(chunkSnap.empty ? 1 : chunkSnap.size);
     const compiledList: Question[] = [];
+    const chunkDocsData: any[] = [];
     
-    if (!chunkSnap.empty) {
+    if (!examTagFilter) {
+      // Fetch system metadata to get exact chunk count and bypass collection scans
+      let chunksCount = 0;
+      try {
+        const systemDoc = await getDoc(doc(db, "db_metadata", "system"));
+        trackFirestoreRead(1);
+        if (systemDoc.exists()) {
+          chunksCount = systemDoc.data().chunksCount || 0;
+        }
+      } catch (e) {
+        console.warn("Could not retrieve chunks count from metadata:", e);
+      }
+
+      if (chunksCount > 0) {
+        console.log(`Optimized Bundle Loader: Loading exactly ${chunksCount} chunks directly by ID (saving 100% of collection scan reads!)`);
+        const chunkDocPromises = [];
+        for (let i = 0; i < chunksCount; i++) {
+          chunkDocPromises.push(getDoc(doc(db, "questions_chunks", `chunk_${i}`)));
+        }
+        
+        const snaps = await Promise.all(chunkDocPromises);
+        trackFirestoreRead(snaps.length);
+        
+        snaps.forEach(docSnap => {
+          if (docSnap.exists()) {
+            chunkDocsData.push(docSnap.data());
+          }
+        });
+      } else {
+        // Fallback: If metadata chunksCount is unavailable, scan collection
+        const q = query(collection(db, "questions_chunks"));
+        const chunkSnap = await getDocs(q);
+        trackFirestoreRead(chunkSnap.empty ? 1 : chunkSnap.size);
+        chunkSnap.forEach(docSnap => {
+          chunkDocsData.push(docSnap.data());
+        });
+      }
+    } else {
+      // Tag-specific query for filter mode
+      const q = query(collection(db, "questions_chunks"), where("examTags", "array-contains", examTagFilter.toLowerCase().trim()));
+      const chunkSnap = await getDocs(q);
+      trackFirestoreRead(chunkSnap.empty ? 1 : chunkSnap.size);
       chunkSnap.forEach(docSnap => {
-        const cData = docSnap.data();
-        if (cData && typeof cData === 'object' && Array.isArray((cData as any).questions)) {
-          (cData as any).questions.forEach((q: any) => {
+        chunkDocsData.push(docSnap.data());
+      });
+    }
+
+    if (chunkDocsData.length > 0) {
+      chunkDocsData.forEach(cData => {
+        if (cData && typeof cData === 'object' && Array.isArray(cData.questions)) {
+          cData.questions.forEach((q: any) => {
             compiledList.push({
               id: q.id,
               questionText: q.questionText || "",
@@ -1832,28 +1871,30 @@ export default function Dashboard() {
       }
 
       if (isOnline) {
-        // 2. Check if we already have questions cached in IndexedDB.
-        // If we do, we do NOT perform ANY automatic read operations on the cloud question bank!
-        // This guarantees 0 startup read operations for the question bank.
+        // 2. Smart Sync: Check if we have questions cached in IndexedDB and if they match cloud system state.
+        // We perform exactly ONE read of the small metadata doc (1 read) to check for remote updates.
+        // If they match, we save thousands of reads by skipping chunk loads.
         let needsLoad = true;
-        if (cachedQs && cachedQs.length > 0) {
+        let cloudLastUpdated = '';
+        
+        try {
+          const systemDoc = await getDoc(doc(db, "db_metadata", "system"));
+          trackFirestoreRead(1);
+          if (systemDoc.exists()) {
+            const sysData = systemDoc.data();
+            cloudLastUpdated = sysData?.lastUpdated || '';
+          }
+        } catch (metaErr) {
+          console.warn("Could not retrieve system metadata:", metaErr);
+        }
+
+        const localLastSynced = localStorage.getItem('MOCK_LAST_SYNCED_TIME') || '2000-01-01T00:00:00.000Z';
+        if (cachedQs && cachedQs.length > 0 && cloudLastUpdated && cloudLastUpdated === localLastSynced) {
           needsLoad = false;
-          console.log(`📦 Local questions cache found (${cachedQs.length} items). Skipping automatic remote checks to save reads. Only manual Pull/Sync will load from server.`);
+          console.log(`📦 Local questions cache is already up-to-date with cloud (${cachedQs.length} items). Skipping automatic remote chunk loads (Saved Firestore reads!)`);
         }
 
         if (needsLoad) {
-          let cloudLastUpdated = '';
-          try {
-            const systemDoc = await getDoc(doc(db, "db_metadata", "system"));
-            trackFirestoreRead(1);
-            if (systemDoc.exists()) {
-              const sysData = systemDoc.data();
-              cloudLastUpdated = sysData?.lastUpdated || '';
-            }
-          } catch (metaErr) {
-            console.warn("Could not retrieve system metadata. Defaulting to force pull chunks:", metaErr);
-          }
-
           try {
             await loadChunks(undefined, cloudLastUpdated);
           } catch (err) {
