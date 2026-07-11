@@ -227,7 +227,15 @@ RAJASTHAN GK: HISTORY, ART & CULTURE CHRONOLOGY
 
 export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome, currentUser, isAdmin, onToggleReadingMode }) => {
   const [activeExamId, setActiveExamId] = useState<string>('exam-dsssb-it');
-  const [notes, setNotes] = useState<StudyNote[]>([]);
+  const [notes, setNotes] = useState<StudyNote[]>(() => {
+    const cached = localStorage.getItem('MOCK_STUDY_NOTES');
+    if (cached) {
+      try {
+        return JSON.parse(cached);
+      } catch (e) {}
+    }
+    return [];
+  });
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSeeding, setIsSeeding] = useState<boolean>(false);
   
@@ -284,6 +292,16 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
     
     try {
       const newNoteRef = doc(collection(db, "study_notes"));
+      const newNote: StudyNote = {
+        id: newNoteRef.id,
+        examId: uploadForm.examId,
+        subject: uploadForm.subject,
+        topic: uploadForm.topic,
+        contentType: uploadForm.contentType,
+        content: uploadFileContent,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
       await setDoc(newNoteRef, {
         examId: uploadForm.examId,
         subject: uploadForm.subject,
@@ -293,6 +311,11 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
+      
+      const updatedNotes = [...notes, newNote];
+      setNotes(updatedNotes);
+      localStorage.setItem('MOCK_STUDY_NOTES', JSON.stringify(updatedNotes));
+      
       alert("Note uploaded successfully!");
       setIsUploadingNote(false);
       setUploadFileContent('');
@@ -303,25 +326,41 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
   };
 
 
-  // Fetch Notes Real-time from Firestore
+  // Fetch Notes from Firestore with Local Cache optimization (0 Startup Reads)
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "study_notes"), async (snapshot) => {
-      const loadedNotes: StudyNote[] = [];
-      snapshot.forEach(docSnap => {
-        loadedNotes.push({
-          id: docSnap.id,
-          ...docSnap.data()
-        } as StudyNote);
-      });
-      setNotes(loadedNotes);
-      if (loadedNotes.length > 0) {
-        localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
+    const loadNotes = async () => {
+      const cached = localStorage.getItem('MOCK_STUDY_NOTES');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.length > 0) {
+            setNotes(parsed);
+            console.log(`📦 Loaded ${parsed.length} study notes from local cache (saved 100% of startup reads)`);
+            return;
+          }
+        } catch (e) {}
       }
 
-      // Trigger automatic seeding using a coordinated DB metadata flag to prevent infinite local re-uploads
-      const locallySeeded = localStorage.getItem('MOCK_STUDY_NOTES_SEEDED') === 'true';
-      if (loadedNotes.length === 0 && !isSeeding && !locallySeeded) {
-        try {
+      try {
+        console.log("☁️ Fetching study notes from Firestore (Cache was empty)");
+        const qSnap = await getDocs(collection(db, "study_notes"));
+        const loadedNotes: StudyNote[] = [];
+        qSnap.forEach(docSnap => {
+          loadedNotes.push({
+            id: docSnap.id,
+            ...docSnap.data()
+          } as StudyNote);
+        });
+
+        setNotes(loadedNotes);
+        if (loadedNotes.length > 0) {
+          localStorage.setItem('MOCK_STUDY_NOTES', JSON.stringify(loadedNotes));
+          localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
+        }
+
+        // Trigger automatic seeding using a coordinated DB metadata flag to prevent infinite local re-uploads
+        const locallySeeded = localStorage.getItem('MOCK_STUDY_NOTES_SEEDED') === 'true';
+        if (loadedNotes.length === 0 && !isSeeding && !locallySeeded) {
           const sysDocRef = doc(db, "db_metadata", "system");
           const sysDoc = await getDoc(sysDocRef);
           const sysData = sysDoc.exists() ? sysDoc.data() : null;
@@ -329,8 +368,10 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
           if (!sysData || !sysData.notesSeeded) {
             console.log("Notes collection is empty and has not been seeded yet. Triggering initial notes seeding...");
             setIsSeeding(true);
+            const seededList: StudyNote[] = [];
             for (const note of SEED_NOTES) {
-              await setDoc(doc(db, "study_notes", note.id), {
+              const docRef = doc(db, "study_notes", note.id);
+              const seededNote = {
                 examId: note.examId,
                 subject: note.subject,
                 topic: note.topic,
@@ -338,30 +379,34 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
                 content: note.content,
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
-              });
+              };
+              await setDoc(docRef, seededNote);
+              seededList.push({ id: note.id, ...seededNote } as StudyNote);
             }
             // Mark as seeded in Firestore to prevent other browsers from ever re-seeding if admin clears the list
             await setDoc(sysDocRef, { notesSeeded: true }, { merge: true });
+            setNotes(seededList);
+            localStorage.setItem('MOCK_STUDY_NOTES', JSON.stringify(seededList));
             localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
             setIsSeeding(false);
           }
-        } catch (e) {
-          console.warn("Could not check metadata or seed notes:", e);
         }
+      } catch (err) {
+        console.warn("Failed to load study notes from Firestore:", err);
       }
-    }, (err) => {
-      console.warn("Failed to sync study notes:", err);
-    });
+    };
 
-    return () => unsubscribe();
+    loadNotes();
   }, [isSeeding]);
 
   const triggerSeeding = async () => {
     setIsSeeding(true);
     localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
     try {
+      const seededList: StudyNote[] = [];
       for (const note of SEED_NOTES) {
-        await setDoc(doc(db, "study_notes", note.id), {
+        const docRef = doc(db, "study_notes", note.id);
+        const seededNote = {
           examId: note.examId,
           subject: note.subject,
           topic: note.topic,
@@ -369,8 +414,12 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
           content: note.content,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
-        });
+        };
+        await setDoc(docRef, seededNote);
+        seededList.push({ id: note.id, ...seededNote } as StudyNote);
       }
+      setNotes(seededList);
+      localStorage.setItem('MOCK_STUDY_NOTES', JSON.stringify(seededList));
     } catch (e) {
       console.error("Failed to seed default study notes:", e);
     } finally {
@@ -381,8 +430,10 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
   const handleDeleteNote = async (noteId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm("Are you sure you want to delete this study note?")) {
+      const updatedNotes = notes.filter(n => n.id !== noteId);
       // Optimistically remove from state so the note vanishes instantly from the screen
-      setNotes(prev => prev.filter(n => n.id !== noteId));
+      setNotes(updatedNotes);
+      localStorage.setItem('MOCK_STUDY_NOTES', JSON.stringify(updatedNotes));
       
       try {
         await deleteDoc(doc(db, "study_notes", noteId));

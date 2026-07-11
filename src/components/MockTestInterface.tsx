@@ -44,13 +44,56 @@ export default function MockTestInterface({
   const [secondsRemaining, setSecondsRemaining] = useState(totalSeconds);
   const [secondsElapsed, setSecondsElapsed] = useState(0);
 
+  // Synchronize state sizes if questions change dynamically
   useEffect(() => {
-    setVisited((prev) => {
+    setSelectedAnswers(prev => {
+      if (prev.length === questions.length) return prev;
       const next = [...prev];
-      next[currentIndex] = true;
+      if (next.length < questions.length) {
+        while (next.length < questions.length) next.push(null);
+      } else {
+        next.length = questions.length;
+      }
       return next;
     });
-  }, [currentIndex]);
+    setVisited(prev => {
+      if (prev.length === questions.length) return prev;
+      const next = [...prev];
+      if (next.length < questions.length) {
+        while (next.length < questions.length) next.push(false);
+      } else {
+        next.length = questions.length;
+      }
+      return next;
+    });
+    setFlagged(prev => {
+      if (prev.length === questions.length) return prev;
+      const next = [...prev];
+      if (next.length < questions.length) {
+        while (next.length < questions.length) next.push(false);
+      } else {
+        next.length = questions.length;
+      }
+      return next;
+    });
+  }, [questions.length]);
+
+  // Ensure currentIndex is always within bounds of the active questions
+  useEffect(() => {
+    if (questions.length > 0 && currentIndex >= questions.length) {
+      setCurrentIndex(questions.length - 1);
+    }
+  }, [questions.length, currentIndex]);
+
+  useEffect(() => {
+    if (questions.length > 0 && currentIndex < questions.length) {
+      setVisited((prev) => {
+        const next = [...prev];
+        next[currentIndex] = true;
+        return next;
+      });
+    }
+  }, [currentIndex, questions.length]);
 
   // Timer interval for stopwatch (only when there is no timer setting)
   useEffect(() => {
@@ -151,7 +194,30 @@ export default function MockTestInterface({
   };
 
   const currentQuestion = questions[currentIndex];
-  if (!currentQuestion) return null;
+  if (!currentQuestion) {
+    if (questions.length === 0) {
+      return (
+        <div className={`min-h-screen flex flex-col items-center justify-center p-6 ${isDarkMode ? 'bg-[#0F1117] text-slate-200' : 'bg-white text-slate-800'}`}>
+          <div className="text-center space-y-4 max-w-md">
+            <div className="inline-flex p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-full text-emerald-500">
+              <CheckCircle2 className="h-12 w-12" />
+            </div>
+            <h2 className="text-xl font-bold">All Questions Done</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              This practice session has no more active questions. If you flagged the last question as a Font Error, it has been successfully sent to the admin queue.
+            </p>
+            <button
+              onClick={onCancel}
+              className="w-full px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition cursor-pointer"
+            >
+              Return to Dashboard
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  }
 
   const letters = ['A', 'B', 'C', 'D'];
   const attemptedNum = selectedAnswers.filter((ans) => ans !== null).length;
@@ -219,37 +285,44 @@ export default function MockTestInterface({
       </header>
 
       {/* Main Workspace split */}
-      <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-4 flex flex-col">
+      <main className="flex-1 w-full max-w-3xl mx-auto px-4 py-6 flex flex-col">
          {/* Question Header */}
-         <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center space-x-1.5 px-3 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400 rounded-lg text-[11px] font-black uppercase tracking-wider">
-               <BookOpen className="h-3.5 w-3.5" />
+         <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center space-x-2 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 rounded-xl text-[11px] font-black uppercase tracking-wider border border-indigo-100/40 dark:border-indigo-900/40">
+               <BookOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
                <span>Question {currentIndex + 1} of {questions.length}</span>
             </div>
             
             <button 
               onClick={toggleFlag}
-              className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg text-[11px] font-bold border transition-colors ${
+              className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-[11px] font-extrabold border transition-all duration-200 shadow-sm cursor-pointer ${
                  flagged[currentIndex] 
-                   ? 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-400' 
-                   : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 dark:bg-transparent dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-800'
+                   ? 'bg-amber-500 border-amber-500 text-white shadow-amber-100 dark:shadow-none' 
+                   : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:bg-[#151821] dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800/80'
               }`}
             >
                <Flag className={`h-3.5 w-3.5 ${flagged[currentIndex] ? 'fill-current' : ''}`} />
                <span>Mark for Review</span>
             </button>
          </div>
-         
-         {currentQuestion.topic && (
-            <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 dark:text-slate-500 mb-2">
-               {currentQuestion.topic}
+
+         {/* Beautiful Question Card container */}
+         <div className="bg-white dark:bg-[#121520] border border-slate-100 dark:border-slate-850 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.02)] dark:shadow-none p-6 sm:p-7 mb-6 transition-all relative overflow-hidden">
+            {/* Soft decorative accent bar on left */}
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-indigo-500 to-violet-600 rounded-l-2xl"></div>
+            
+            {currentQuestion.topic && (
+               <div className="inline-block text-[10px] font-black uppercase tracking-widest text-indigo-600 bg-indigo-50/80 dark:text-indigo-400 dark:bg-indigo-950/30 px-2.5 py-1 rounded-md mb-4 border border-indigo-100/30 dark:border-indigo-900/30">
+                  {currentQuestion.topic}
+               </div>
+            )}
+            
+            <div className="text-base sm:text-lg font-bold leading-relaxed text-slate-900 dark:text-slate-100 font-display">
+               <FormattedText text={currentQuestion.questionText} className="devanagari-crisp" />
             </div>
-         )}
-         
-         <div className="text-base sm:text-lg font-medium leading-relaxed mb-6 text-slate-900 dark:text-slate-100">
-            <FormattedText text={currentQuestion.questionText} />
          </div>
          
+         {/* Styled Premium Options */}
          <div className="space-y-3 mb-8">
             {currentQuestion.options.map((optionText, idx) => {
                const isSelected = selectedAnswers[currentIndex] === idx;
@@ -257,22 +330,27 @@ export default function MockTestInterface({
                   <button
                      key={idx}
                      onClick={() => selectOption(idx)}
-                     className={`w-full text-left px-5 py-4 rounded-xl border-2 transition-all duration-200 cursor-pointer flex items-center space-x-4 ${
+                     className={`w-full text-left px-5 py-4.5 rounded-2xl border-2 transition-all duration-200 cursor-pointer flex items-center justify-between gap-4 group ${
                         isSelected
-                           ? 'border-indigo-600 bg-indigo-50/50 dark:border-indigo-500 dark:bg-indigo-900/20'
-                           : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-[#151821] dark:hover:border-slate-600'
+                           ? 'border-indigo-600 bg-indigo-50/40 shadow-sm dark:border-indigo-500 dark:bg-indigo-950/20'
+                           : 'border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50/50 hover:shadow-xs dark:border-slate-800/60 dark:bg-[#121520] dark:hover:border-slate-700/80 dark:hover:bg-[#151928]'
                      }`}
                   >
-                     <div className={`h-8 w-8 rounded-full border-2 flex items-center justify-center text-sm font-bold shrink-0 transition-colors ${
-                        isSelected 
-                           ? 'border-indigo-600 bg-indigo-600 text-white dark:border-indigo-500 dark:bg-indigo-500'
-                           : 'border-slate-300 text-slate-400 dark:border-slate-600 dark:text-slate-500'
-                     }`}>
-                        {letters[idx]}
+                     <div className="flex items-center space-x-4 flex-1">
+                        <div className={`h-8 w-8 rounded-xl border-2 flex items-center justify-center text-sm font-black shrink-0 transition-all duration-200 ${
+                           isSelected 
+                              ? 'border-indigo-600 bg-indigo-600 text-white dark:border-indigo-500 dark:bg-indigo-500 shadow-sm shadow-indigo-100 dark:shadow-none'
+                              : 'border-slate-200 text-slate-400 dark:border-slate-800 dark:text-slate-600 group-hover:border-slate-350 dark:group-hover:border-slate-600'
+                        }`}>
+                           {letters[idx]}
+                        </div>
+                        <div className={`flex-1 text-sm sm:text-base leading-relaxed ${isSelected ? 'text-indigo-950 font-black dark:text-indigo-100' : 'text-slate-700 font-medium dark:text-slate-300'}`}>
+                           <FormattedText text={optionText} className="devanagari-crisp" />
+                        </div>
                      </div>
-                     <div className={`flex-1 ${isSelected ? 'text-indigo-950 font-semibold dark:text-indigo-100' : 'text-slate-700 font-medium dark:text-slate-300'}`}>
-                        <FormattedText text={optionText} />
-                     </div>
+                     {isSelected && (
+                        <CheckCircle2 className="h-5 w-5 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                     )}
                   </button>
                );
             })}
@@ -340,11 +418,17 @@ export default function MockTestInterface({
                      if (!window.confirm("Bhai, kya aap sach mein is question ko Font Error ke roop mein flag karna chahte hain?")) return;
                      try {
                         if (onFlagQuestion) {
-                           await onFlagQuestion(currentQuestion);
+                           const qToFlag = currentQuestion;
+                           
+                           // Adjust indices locally first to avoid length mismatch crashes during rapid state updates
+                           setSelectedAnswers(prev => prev.filter((_, idx) => idx !== currentIndex));
+                           setVisited(prev => prev.filter((_, idx) => idx !== currentIndex));
+                           setFlagged(prev => prev.filter((_, idx) => idx !== currentIndex));
+
+                           await onFlagQuestion(qToFlag);
                            alert("Done! Question ko Font Error ke roop mein flag karke admin queue mein bhej diya gaya hai!");
-                           if (currentIndex < questions.length - 1) {
-                              setCurrentIndex(prev => prev + 1);
-                           } else if (questions.length > 1) {
+                           
+                           if (currentIndex >= questions.length - 1 && currentIndex > 0) {
                               setCurrentIndex(prev => prev - 1);
                            }
                         } else {

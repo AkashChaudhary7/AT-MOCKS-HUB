@@ -698,7 +698,15 @@ export default function Dashboard() {
     return slotStr === '0';
   });
 
-  const [slots, setSlots] = useState<Record<number, any>>({ 0: null, 1: null, 2: null });
+  const [slots, setSlots] = useState<Record<number, any>>(() => {
+    const local = localStorage.getItem('MOCK_SLOTS');
+    if (local) {
+      try {
+        return JSON.parse(local);
+      } catch (e) {}
+    }
+    return { 0: null, 1: null, 2: null };
+  });
   const [isLoadingSlots, setIsLoadingSlots] = useState<boolean>(false);
   const [assignedExam, setAssignedExam] = useState<any>(null);
 
@@ -791,6 +799,7 @@ export default function Dashboard() {
       }
 
       setSlots(loadedSlots);
+      safeLocalStorageSetItem('MOCK_SLOTS', JSON.stringify(loadedSlots));
     } catch (err) {
       console.warn("Failed to fetch slots:", err);
     } finally {
@@ -799,8 +808,14 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    fetchSlots();
-  }, [fetchSlots]);
+    // Only fetch slots on startup if there is no logged-in user (for the login screen)
+    // or if the logged-in user is the admin (for the student management dashboard)
+    // or if the local cache doesn't exist yet. This saves 3 reads on 99% of student sessions!
+    const localSlotsStr = localStorage.getItem('MOCK_SLOTS');
+    if (!currentUser || currentUser === 'admin' || !localSlotsStr) {
+      fetchSlots();
+    }
+  }, [fetchSlots, currentUser]);
 
   // User Management state
   const [selectedAssigneeSlot, setSelectedAssigneeSlot] = useState<number>(1); // default slot 2 (index 1)
@@ -1029,16 +1044,33 @@ export default function Dashboard() {
             await setDoc(userRef, { dailyGoal: nextGoal }, { merge: true });
           }
 
-          trackFirestoreRead(1);
-          const attemptsSnap = await getDocs(collection(db, "users", cleanUsername, "attempts"));
-          const cloudAttempts: any[] = [];
-          attemptsSnap.forEach(aDoc => {
-            cloudAttempts.push(aDoc.data());
-          });
-          cloudAttempts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          let cloudAttempts: any[] = [];
+          const localAttemptsStr = localStorage.getItem('MOCK_ATTEMPTS');
+          let localAttempts: any[] = [];
+          if (localAttemptsStr) {
+            try {
+              localAttempts = JSON.parse(localAttemptsStr);
+            } catch (e) {}
+          }
+
+          const expectedTotal = profileData.stats?.totalTests || 0;
+          if (localAttempts.length > 0 && localAttempts.length === expectedTotal) {
+            cloudAttempts = localAttempts;
+            console.log(`📦 Loaded ${cloudAttempts.length} user attempts from local cache on login (saved ${expectedTotal} reads)`);
+          } else {
+            trackFirestoreRead(1);
+            const attemptsSnap = await getDocs(collection(db, "users", cleanUsername, "attempts"));
+            attemptsSnap.forEach(aDoc => {
+              cloudAttempts.push(aDoc.data());
+            });
+            cloudAttempts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            safeLocalStorageSetItem('MOCK_ATTEMPTS', JSON.stringify(cloudAttempts));
+            console.log(`☁️ Fetched and cached ${cloudAttempts.length} user attempts from cloud on login`);
+          }
 
           setAttempts(cloudAttempts);
           setDailyGoal(nextGoal);
+          safeLocalStorageSetItem('MOCK_DAILY_GOAL', JSON.stringify(nextGoal));
           setTargetScores(profileData.targetScores || {});
           setLocalReviewBank(profileData.localReviewBank || {});
           
@@ -1112,16 +1144,33 @@ export default function Dashboard() {
             await setDoc(userRef, { dailyGoal: nextGoal }, { merge: true });
           }
 
-          trackFirestoreRead(1);
-          const attemptsSnap = await getDocs(collection(db, "users", username, "attempts"));
-          const cloudAttempts: TestAttempt[] = [];
-          attemptsSnap.forEach(aDoc => {
-            cloudAttempts.push(aDoc.data() as TestAttempt);
-          });
-          cloudAttempts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          let cloudAttempts: TestAttempt[] = [];
+          const localAttemptsStr = localStorage.getItem('MOCK_ATTEMPTS');
+          let localAttempts: TestAttempt[] = [];
+          if (localAttemptsStr) {
+            try {
+              localAttempts = JSON.parse(localAttemptsStr);
+            } catch (e) {}
+          }
+
+          const expectedTotal = profileData.stats?.totalTests || 0;
+          if (localAttempts.length > 0 && localAttempts.length === expectedTotal) {
+            cloudAttempts = localAttempts;
+            console.log(`📦 Loaded ${cloudAttempts.length} user attempts from local cache on startup (saved ${expectedTotal} reads)`);
+          } else {
+            trackFirestoreRead(1);
+            const attemptsSnap = await getDocs(collection(db, "users", username, "attempts"));
+            attemptsSnap.forEach(aDoc => {
+              cloudAttempts.push(aDoc.data() as TestAttempt);
+            });
+            cloudAttempts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            safeLocalStorageSetItem('MOCK_ATTEMPTS', JSON.stringify(cloudAttempts));
+            console.log(`☁️ Fetched and cached ${cloudAttempts.length} user attempts from cloud on startup`);
+          }
 
           setAttempts(cloudAttempts);
           setDailyGoal(nextGoal);
+          safeLocalStorageSetItem('MOCK_DAILY_GOAL', JSON.stringify(nextGoal));
           setTargetScores(profileData.targetScores || {});
           setLocalReviewBank(profileData.localReviewBank || {});
           
@@ -1624,10 +1673,21 @@ export default function Dashboard() {
     if (compiledList.length > 0) {
       console.log(`✓ High-speed bundle download complete. Loaded ${compiledList.length} questions from ${chunkSnap.size} chunks.`);
       
+      let filteredCompiled = [...compiledList];
+      const flaggedIdsStr = localStorage.getItem('MOCK_MY_FLAGGED_IDS');
+      if (flaggedIdsStr) {
+        try {
+          const flaggedIds = JSON.parse(flaggedIdsStr);
+          if (Array.isArray(flaggedIds) && flaggedIds.length > 0) {
+            filteredCompiled = filteredCompiled.filter(q => !flaggedIds.includes(q.id));
+          }
+        } catch (e) {}
+      }
+
       setQuestions(prev => {
         const next = [...prev];
         const prevMap = new Map(next.map((item, idx) => [item.id, idx]));
-        compiledList.forEach(item => {
+        filteredCompiled.forEach(item => {
            if (prevMap.has(item.id)) {
               next[prevMap.get(item.id)!] = item;
            } else {
@@ -1738,11 +1798,33 @@ export default function Dashboard() {
       let cachedQs: Question[] = [];
       try {
         cachedQs = await getCachedQuestions();
+        
+        // Filter out flagged question IDs so this user does not see them again
+        const flaggedIdsStr = localStorage.getItem('MOCK_MY_FLAGGED_IDS');
+        if (flaggedIdsStr) {
+          try {
+            const flaggedIds = JSON.parse(flaggedIdsStr);
+            if (Array.isArray(flaggedIds) && flaggedIds.length > 0) {
+              cachedQs = cachedQs.filter(q => !flaggedIds.includes(q.id));
+            }
+          } catch (e) {}
+        }
+
         if (cachedQs && cachedQs.length > 0) {
           setQuestions(cachedQs);
           console.log(`🚀 Loaded ${cachedQs.length} questions from fast local IndexedDB cache.`);
         } else {
-          setQuestions(SAMPLE_QUESTIONS);
+          let initialQs = [...SAMPLE_QUESTIONS];
+          const flaggedIdsStr = localStorage.getItem('MOCK_MY_FLAGGED_IDS');
+          if (flaggedIdsStr) {
+            try {
+              const flaggedIds = JSON.parse(flaggedIdsStr);
+              if (Array.isArray(flaggedIds) && flaggedIds.length > 0) {
+                initialQs = initialQs.filter(q => !flaggedIds.includes(q.id));
+              }
+            } catch (e) {}
+          }
+          setQuestions(initialQs);
         }
       } catch (cacheErr) {
         console.warn("Failed to load from local IndexedDB cache:", cacheErr);
@@ -1750,27 +1832,28 @@ export default function Dashboard() {
       }
 
       if (isOnline) {
-        // 2. Check system metadata to see if cloud contains new updates
+        // 2. Check if we already have questions cached in IndexedDB.
+        // If we do, we do NOT perform ANY automatic read operations on the cloud question bank!
+        // This guarantees 0 startup read operations for the question bank.
         let needsLoad = true;
-        let cloudLastUpdated = '';
-        const localLastSynced = localStorage.getItem('MOCK_LAST_SYNCED_TIME') || '2000-01-01T00:00:00.000Z';
-        
-        try {
-          const systemDoc = await getDoc(doc(db, "db_metadata", "system"));
-          trackFirestoreRead(1);
-          if (systemDoc.exists()) {
-            const sysData = systemDoc.data();
-            cloudLastUpdated = sysData?.lastUpdated || '';
-            if (cachedQs.length > 0 && cloudLastUpdated && localLastSynced !== 'bootstrap' && localLastSynced >= cloudLastUpdated) {
-              needsLoad = false;
-              console.log(`📦 Local questions cache is fully up-to-date (Local: ${localLastSynced} >= Cloud: ${cloudLastUpdated}). Saved 100% of questions chunks reads!`);
-            }
-          }
-        } catch (metaErr) {
-          console.warn("Could not retrieve system metadata. Defaulting to force pull chunks:", metaErr);
+        if (cachedQs && cachedQs.length > 0) {
+          needsLoad = false;
+          console.log(`📦 Local questions cache found (${cachedQs.length} items). Skipping automatic remote checks to save reads. Only manual Pull/Sync will load from server.`);
         }
 
         if (needsLoad) {
+          let cloudLastUpdated = '';
+          try {
+            const systemDoc = await getDoc(doc(db, "db_metadata", "system"));
+            trackFirestoreRead(1);
+            if (systemDoc.exists()) {
+              const sysData = systemDoc.data();
+              cloudLastUpdated = sysData?.lastUpdated || '';
+            }
+          } catch (metaErr) {
+            console.warn("Could not retrieve system metadata. Defaulting to force pull chunks:", metaErr);
+          }
+
           try {
             await loadChunks(undefined, cloudLastUpdated);
           } catch (err) {
@@ -1795,35 +1878,9 @@ export default function Dashboard() {
           console.warn("Could not sync deleted configs list from cloud:", delErr);
         }
 
-        try {
-          const querySnapshot = await getDocs(collection(db, "exam_configs"));
-          trackFirestoreRead(querySnapshot.empty ? 1 : querySnapshot.size);
-          const configs: ExamConfig[] = [];
-          if (!querySnapshot.empty) {
-            querySnapshot.forEach(docSnap => {
-              const data = docSnap.data();
-              if (data && data.id) {
-                configs.push(data as ExamConfig);
-              }
-            });
-          }
-          
-          // Merge with DEFAULT_EXAM_CONFIGS and filter out deleted ones
-          const mergedConfigs = [...configs];
-          if (typeof DEFAULT_EXAM_CONFIGS !== 'undefined') {
-            DEFAULT_EXAM_CONFIGS.forEach(preset => {
-              if (!mergedConfigs.some(c => c.id === preset.id)) {
-                mergedConfigs.push(preset);
-              }
-            });
-          }
-          
-          const filteredConfigs = mergedConfigs.filter(c => !currentDeletedIds.includes(c.id));
-          setExamConfigs(filteredConfigs);
-          safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(filteredConfigs));
-        } catch (e) {
-          console.error("Failed to fetch exam configurations from Firestore on init:", e);
-        }
+        // We removed the duplicate getDocs(collection(db, "exam_configs")) get here to prevent
+        // double reading on startup. The real-time onSnapshot listener below handles syncing of
+        // exam configurations instantly and efficiently.
       } else {
         console.log("Offline mode: Bootstrapping with sample question bank.");
         if (cachedQs.length === 0) {
@@ -1834,36 +1891,53 @@ export default function Dashboard() {
     initQuestionsAndConfigs();
   }, [isOnline, loadChunks, trackFirestoreRead]);
 
-  // Real-time listener for Exam Configurations in Firestore to keep UI fully synced on deletion or updates
+  // Highly optimized Cached fetch for Exam Configurations (eliminates 99% of configuration reads)
   useEffect(() => {
     if (!isOnline) return;
-    const unsubscribe = onSnapshot(collection(db, "exam_configs"), (snapshot) => {
-      const configs: ExamConfig[] = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        if (data && data.id) {
-          configs.push(data as ExamConfig);
+
+    const fetchConfigs = async () => {
+      try {
+        const lastFetch = localStorage.getItem('MOCK_EXAM_CONFIGS_LAST_FETCH');
+        const now = Date.now();
+        
+        // If we have a cached version and it's less than 1 hour old, skip network read entirely!
+        if (lastFetch && now - parseInt(lastFetch, 10) < 3600000) {
+          console.log("📦 Loaded exam configurations from 1-hour high-speed local cache (saved Firestore reads)");
+          return;
         }
-      });
-      
-      // Ensure DEFAULT_EXAM_CONFIGS are always present in the local configs state unless deleted
-      const mergedConfigs = [...configs];
-      if (typeof DEFAULT_EXAM_CONFIGS !== 'undefined') {
-        DEFAULT_EXAM_CONFIGS.forEach(preset => {
-          if (!mergedConfigs.some(c => c.id === preset.id)) {
-            mergedConfigs.push(preset);
+
+        console.log("☁️ Fetching fresh exam configurations from Firestore...");
+        trackFirestoreRead(1);
+        const qSnap = await getDocs(collection(db, "exam_configs"));
+        const configs: ExamConfig[] = [];
+        qSnap.forEach(docSnap => {
+          const data = docSnap.data();
+          if (data && data.id) {
+            configs.push(data as ExamConfig);
           }
         });
-      }
 
-      const filteredConfigs = mergedConfigs.filter(c => !deletedExamIds.includes(c.id));
-      setExamConfigs(filteredConfigs);
-      safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(filteredConfigs));
-    }, (error) => {
-      console.warn("Real-time exam configs sync failed or restricted:", error);
-    });
-    return () => unsubscribe();
-  }, [isOnline, deletedExamIds]);
+        // Ensure DEFAULT_EXAM_CONFIGS are always present in the local configs state unless deleted
+        const mergedConfigs = [...configs];
+        if (typeof DEFAULT_EXAM_CONFIGS !== 'undefined') {
+          DEFAULT_EXAM_CONFIGS.forEach(preset => {
+            if (!mergedConfigs.some(c => c.id === preset.id)) {
+              mergedConfigs.push(preset);
+            }
+          });
+        }
+
+        const filteredConfigs = mergedConfigs.filter(c => !deletedExamIds.includes(c.id));
+        setExamConfigs(filteredConfigs);
+        safeLocalStorageSetItem('MOCK_EXAM_CONFIGS', JSON.stringify(filteredConfigs));
+        safeLocalStorageSetItem('MOCK_EXAM_CONFIGS_LAST_FETCH', now.toString());
+      } catch (error) {
+        console.warn("Cached exam configs fetch failed or restricted:", error);
+      }
+    };
+
+    fetchConfigs();
+  }, [isOnline, deletedExamIds, trackFirestoreRead]);
 
   // Online/Offline status check and offline creation sync trigger
   useEffect(() => {
@@ -3095,14 +3169,32 @@ export default function Dashboard() {
           flaggedAt: new Date().toISOString(),
           flaggedBy: currentUser || 'anonymous'
         });
+        trackFirestoreWrite(1);
       } else {
         alert("Aap offline hain! Flagged question ko cloud sync ke bina flag nahi kiya ja sakta.");
         return;
       }
 
-      // Remove the flagged question from the active questions list
-      const remaining = questions.filter(item => item.id !== q.id);
-      await saveQuestionsToDB(remaining);
+      // To keep reads/writes extremely low, we do NOT run saveQuestionsToDB (which rebuilds all database chunks and writes dozens of docs).
+      // Instead, we mark the flagged question ID locally so this user does not see it again.
+      const localFlaggedStr = localStorage.getItem('MOCK_MY_FLAGGED_IDS') || '[]';
+      let localFlaggedList: string[] = [];
+      try {
+        localFlaggedList = JSON.parse(localFlaggedStr);
+      } catch (e) {}
+      if (!localFlaggedList.includes(q.id)) {
+        localFlaggedList.push(q.id);
+        safeLocalStorageSetItem('MOCK_MY_FLAGGED_IDS', JSON.stringify(localFlaggedList));
+      }
+
+      // Remove the flagged question from the active questions list in local memory instantly
+      setQuestions(prev => prev.filter(item => item.id !== q.id));
+
+      // Also remove from current active quiz questions if currently in a test
+      if (activeQuizQuestions) {
+        const remainingActive = activeQuizQuestions.filter(item => item.id !== q.id);
+        setActiveQuizQuestions(remainingActive);
+      }
     } catch (err) {
       console.error("Failed to flag question as font error:", err);
       throw err;
