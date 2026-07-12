@@ -21,7 +21,8 @@ import {
   limit,
   orderBy,
   getCountFromServer,
-  arrayUnion
+  arrayUnion,
+  documentId
 } from 'firebase/firestore';
 import { db, firebaseConfig } from '../lib/firebase';
 import { parseUniversalHTML, normalizeHindiText, parseJSONQuestions, parseTXTQuestions } from '../lib/htmlParser';
@@ -96,8 +97,21 @@ const filterQuestionsByExam = (questions: Question[], exam: ExamConfig): Questio
   if (!exam) return questions;
   const examIdLower = exam.id.toLowerCase().trim();
   const examNameLower = exam.name.toLowerCase().trim();
-  const examSubjects = Object.keys(exam.subjectDistribution || {}).map(s => s.toLowerCase().trim());
+  let examSubjects = Object.keys(exam.subjectDistribution || {}).map(s => s.toLowerCase().trim());
   const isDSSSB = examIdLower.includes("dsssb") || examNameLower.includes("dsssb");
+
+  if (isDSSSB) {
+    examSubjects = Array.from(new Set([
+      ...examSubjects,
+      'general studies', 'gs', 'gk', 'general awareness', 'polity', 'history', 'geography', 'science', 'sports', 'culture', 'current affairs',
+      'mathematics', 'maths', 'quant', 'arithmetic', 'arithmetical & numerical ability',
+      'reasoning', 'mental ability', 'general intelligence & reasoning ability',
+      'hindi',
+      'english',
+      'computer', 'computer science', 'cs', 'it', 'information technology',
+      'teaching', 'teaching methodology', 'pedagogy', 'child development', 'teaching learning'
+    ]));
+  }
 
   return questions.filter(q => {
     const qTarget = (q.targetExam || "").toLowerCase().trim();
@@ -713,7 +727,7 @@ export default function Dashboard() {
   const fetchSlots = useCallback(async () => {
     setIsLoadingSlots(true);
     try {
-      const qSnap = await getDocs(collection(db, "users"));
+      const qSnap = await getDocs(query(collection(db, "users"), limit(3)));
       const loadedSlots: Record<number, any> = { 0: null, 1: null, 2: null };
       qSnap.forEach(docSnap => {
         const data = docSnap.data();
@@ -786,7 +800,7 @@ export default function Dashboard() {
       }
 
       if (needsRefresh) {
-        const refetchedSnap = await getDocs(collection(db, "users"));
+        const refetchedSnap = await getDocs(query(collection(db, "users"), limit(3)));
         refetchedSnap.forEach(docSnap => {
           const data = docSnap.data();
           if (typeof data.slotIndex === 'number' && data.slotIndex >= 0 && data.slotIndex <= 2) {
@@ -847,7 +861,7 @@ export default function Dashboard() {
         const u = slots[idx];
         if (u && u.username) {
           trackFirestoreRead(1);
-          const attSnap = await getDocs(collection(db, "users", u.username, "attempts"));
+          const attSnap = await getDocs(query(collection(db, "users", u.username, "attempts"), limit(50)));
           const list: TestAttempt[] = [];
           attSnap.forEach(d => {
             list.push(d.data() as TestAttempt);
@@ -1054,12 +1068,12 @@ export default function Dashboard() {
           }
 
           const expectedTotal = profileData.stats?.totalTests || 0;
-          if (localAttempts.length > 0 && localAttempts.length === expectedTotal) {
+          if (localAttempts.length === expectedTotal) {
             cloudAttempts = localAttempts;
             console.log(`📦 Loaded ${cloudAttempts.length} user attempts from local cache on login (saved ${expectedTotal} reads)`);
           } else {
             trackFirestoreRead(1);
-            const attemptsSnap = await getDocs(collection(db, "users", cleanUsername, "attempts"));
+            const attemptsSnap = await getDocs(query(collection(db, "users", cleanUsername, "attempts"), limit(100)));
             attemptsSnap.forEach(aDoc => {
               cloudAttempts.push(aDoc.data());
             });
@@ -1154,12 +1168,12 @@ export default function Dashboard() {
           }
 
           const expectedTotal = profileData.stats?.totalTests || 0;
-          if (localAttempts.length > 0 && localAttempts.length === expectedTotal) {
+          if (localAttempts.length === expectedTotal) {
             cloudAttempts = localAttempts;
             console.log(`📦 Loaded ${cloudAttempts.length} user attempts from local cache on startup (saved ${expectedTotal} reads)`);
           } else {
             trackFirestoreRead(1);
-            const attemptsSnap = await getDocs(collection(db, "users", username, "attempts"));
+            const attemptsSnap = await getDocs(query(collection(db, "users", username, "attempts"), limit(100)));
             attemptsSnap.forEach(aDoc => {
               cloudAttempts.push(aDoc.data() as TestAttempt);
             });
@@ -1244,6 +1258,7 @@ export default function Dashboard() {
     return DEFAULT_EXAM_CONFIGS;
   });
   const [selectedExamId, setSelectedExamId] = useState<string>("custom");
+  const [dsssbSectionMode, setDsssbSectionMode] = useState<'whole' | 'part_a' | 'part_b'>('whole');
   const [activeCountdownExamId, setActiveCountdownExamId] = useState<string>("exam-dsssb-tgt");
   const [analyticsFilter, setAnalyticsFilter] = useState<string>("selected");
   const [deletedExamIds, setDeletedExamIds] = useState<string[]>(() => {
@@ -1655,23 +1670,35 @@ export default function Dashboard() {
       }
 
       if (chunksCount > 0) {
-        console.log(`Optimized Bundle Loader: Loading exactly ${chunksCount} chunks directly by ID (saving 100% of collection scan reads!)`);
-        const chunkDocPromises = [];
+        console.log(`Optimized Bundle Loader: Loading exactly ${chunksCount} chunks using bundled batch queries by ID (saving reads & network round trips!)`);
+        const chunkIds = [];
         for (let i = 0; i < chunksCount; i++) {
-          chunkDocPromises.push(getDoc(doc(db, "questions_chunks", `chunk_${i}`)));
+          chunkIds.push(`chunk_${i}`);
         }
-        
-        const snaps = await Promise.all(chunkDocPromises);
-        trackFirestoreRead(snaps.length);
-        
-        snaps.forEach(docSnap => {
-          if (docSnap.exists()) {
-            chunkDocsData.push(docSnap.data());
-          }
+
+        const batches = [];
+        for (let i = 0; i < chunkIds.length; i += 30) {
+          batches.push(chunkIds.slice(i, i + 30));
+        }
+
+        const queryPromises = batches.map(batchIds => {
+          const q = query(collection(db, "questions_chunks"), where(documentId(), "in", batchIds));
+          return getDocs(q);
         });
+
+        const snaps = await Promise.all(queryPromises);
+        let totalDocsFetched = 0;
+
+        snaps.forEach(querySnap => {
+          totalDocsFetched += querySnap.size;
+          querySnap.forEach(docSnap => {
+            chunkDocsData.push(docSnap.data());
+          });
+        });
+        trackFirestoreRead(totalDocsFetched || 1);
       } else {
         // Fallback: If metadata chunksCount is unavailable, scan collection
-        const q = query(collection(db, "questions_chunks"));
+        const q = query(collection(db, "questions_chunks"), limit(100));
         const chunkSnap = await getDocs(q);
         trackFirestoreRead(chunkSnap.empty ? 1 : chunkSnap.size);
         chunkSnap.forEach(docSnap => {
@@ -1680,7 +1707,7 @@ export default function Dashboard() {
       }
     } else {
       // Tag-specific query for filter mode
-      const q = query(collection(db, "questions_chunks"), where("examTags", "array-contains", examTagFilter.toLowerCase().trim()));
+      const q = query(collection(db, "questions_chunks"), where("examTags", "array-contains", examTagFilter.toLowerCase().trim()), limit(100));
       const chunkSnap = await getDocs(q);
       trackFirestoreRead(chunkSnap.empty ? 1 : chunkSnap.size);
       chunkSnap.forEach(docSnap => {
@@ -1710,7 +1737,7 @@ export default function Dashboard() {
     }
     
     if (compiledList.length > 0) {
-      console.log(`✓ High-speed bundle download complete. Loaded ${compiledList.length} questions from ${chunkSnap.size} chunks.`);
+      console.log(`✓ High-speed bundle download complete. Loaded ${compiledList.length} questions from ${chunkDocsData.length} chunks.`);
       
       let filteredCompiled = [...compiledList];
       const flaggedIdsStr = localStorage.getItem('MOCK_MY_FLAGGED_IDS');
@@ -1949,7 +1976,7 @@ export default function Dashboard() {
 
         console.log("☁️ Fetching fresh exam configurations from Firestore...");
         trackFirestoreRead(1);
-        const qSnap = await getDocs(collection(db, "exam_configs"));
+        const qSnap = await getDocs(query(collection(db, "exam_configs"), limit(50)));
         const configs: ExamConfig[] = [];
         qSnap.forEach(docSnap => {
           const data = docSnap.data();
@@ -2346,7 +2373,7 @@ export default function Dashboard() {
 
         if (isOnline) {
           // Delete all chunks from Firestore questions_chunks
-          const chunkSnap = await getDocs(query(collection(db, "questions_chunks")));
+          const chunkSnap = await getDocs(query(collection(db, "questions_chunks"), limit(500)));
           trackFirestoreRead(chunkSnap.empty ? 1 : chunkSnap.size);
           
           // Firestore limits batches to 500 operations
@@ -2738,41 +2765,107 @@ export default function Dashboard() {
         return;
       }
 
+      const isDSSSB = exam.id.toLowerCase().includes("dsssb") || exam.name.toLowerCase().includes("dsssb");
+      
+      let finalDistribution = exam.subjectDistribution;
+      let finalDuration = exam.durationMinutes;
+      let finalExamName = exam.name;
+
+      if (isDSSSB) {
+        if (dsssbSectionMode === 'part_a') {
+          finalExamName = `${exam.name} - Part A`;
+          finalDuration = 60;
+          finalDistribution = {
+            'General Studies': 20,
+            'Mathematics': 20,
+            'Reasoning': 20,
+            'Hindi': 20,
+            'English': 20
+          };
+        } else if (dsssbSectionMode === 'part_b') {
+          finalExamName = `${exam.name} - Part B`;
+          finalDuration = 60;
+          finalDistribution = {
+            'Computer': 80,
+            'Teaching Methodology': 20
+          };
+        } else {
+          finalExamName = `${exam.name} - Complete (Part A + B)`;
+          finalDuration = 120;
+          finalDistribution = {
+            'General Studies': 20,
+            'Mathematics': 20,
+            'Reasoning': 20,
+            'Hindi': 20,
+            'English': 20,
+            'Computer': 80,
+            'Teaching Methodology': 20
+          };
+        }
+      }
+
       // Filter pool dynamically based on user's selected/assigned exam target and subject rules:
       let examPool = filterQuestionsByExam(sourcePool, exam);
 
-      // Compile questions according to subject pattern mapping with ±2 random offset
+      // Compile questions according to subject pattern mapping
       let compiledList: Question[] = [];
       const statsReport: string[] = [];
 
-      Object.entries(exam.subjectDistribution).forEach(([subjectName, targetCount]) => {
-        // Filter pool questions matching target subject category case-insensitively
-        let subjectQs = examPool.filter(q => q.subject.toLowerCase() === subjectName.toLowerCase());
+      Object.entries(finalDistribution).forEach(([subjectName, targetCount]) => {
+        let subjectQs: Question[] = [];
         
-        const subjectSourceTag = exam.subjectSources?.[subjectName];
-        if (subjectSourceTag) {
-          const lowerSubTag = subjectSourceTag.toLowerCase().trim();
-          subjectQs = subjectQs.filter(q => 
-            (q.targetExam && q.targetExam.toLowerCase().trim() === lowerSubTag) ||
-            (q.subject && q.subject.toLowerCase().trim() === lowerSubTag)
-          );
+        if (isDSSSB) {
+          const sName = subjectName.toLowerCase().trim();
+          if (sName === 'general studies' || sName === 'gs' || sName === 'general awareness' || sName === 'gk') {
+            const gsSubjects = ['general studies', 'gs', 'gk', 'general awareness', 'polity', 'history', 'geography', 'science', 'sports', 'culture', 'current affairs'];
+            subjectQs = examPool.filter(q => gsSubjects.includes((q.subject || "").toLowerCase().trim()));
+          } else if (sName === 'mathematics' || sName === 'maths' || sName === 'quant' || sName === 'arithmetic') {
+            const mathSubjects = ['mathematics', 'maths', 'quant', 'arithmetic', 'arithmetical & numerical ability'];
+            subjectQs = examPool.filter(q => mathSubjects.includes((q.subject || "").toLowerCase().trim()));
+          } else if (sName === 'reasoning') {
+            const reasoningSubjects = ['reasoning', 'mental ability', 'general intelligence & reasoning ability'];
+            subjectQs = examPool.filter(q => reasoningSubjects.includes((q.subject || "").toLowerCase().trim()));
+          } else if (sName === 'hindi') {
+            subjectQs = examPool.filter(q => (q.subject || "").toLowerCase().trim().includes('hindi'));
+          } else if (sName === 'english') {
+            subjectQs = examPool.filter(q => (q.subject || "").toLowerCase().trim().includes('english'));
+          } else if (sName === 'computer' || sName === 'computer science' || sName === 'cs' || sName === 'it') {
+            const csSubjects = ['computer', 'computer science', 'cs', 'it', 'information technology'];
+            subjectQs = examPool.filter(q => csSubjects.includes((q.subject || "").toLowerCase().trim()));
+          } else if (sName === 'teaching methodology' || sName === 'pedagogy' || sName === 'teaching') {
+            const teachingSubjects = ['teaching', 'teaching methodology', 'pedagogy', 'child development', 'teaching learning'];
+            subjectQs = examPool.filter(q => teachingSubjects.includes((q.subject || "").toLowerCase().trim()));
+          } else {
+            subjectQs = examPool.filter(q => q.subject.toLowerCase() === sName);
+          }
+        } else {
+          subjectQs = examPool.filter(q => q.subject.toLowerCase() === subjectName.toLowerCase());
+          
+          const subjectSourceTag = exam.subjectSources?.[subjectName];
+          if (subjectSourceTag) {
+            const lowerSubTag = subjectSourceTag.toLowerCase().trim();
+            subjectQs = subjectQs.filter(q => 
+              (q.targetExam && q.targetExam.toLowerCase().trim() === lowerSubTag) ||
+              (q.subject && q.subject.toLowerCase().trim() === lowerSubTag)
+            );
+          }
         }
 
         const baseCount = targetCount as number;
-        const actualCountNeeded = baseCount; // Strict question count as per exam rules, no random offset
+        const actualCountNeeded = baseCount;
 
         if (subjectQs.length > 0) {
           const shuffledSub = [...subjectQs].sort(() => 0.5 - Math.random());
           const selectedSub = shuffledSub.slice(0, Math.min(actualCountNeeded, shuffledSub.length));
           compiledList = [...compiledList, ...selectedSub];
-          statsReport.push(`${subjectName}: ${selectedSub.length} questions (target: ${baseCount}, source: ${subjectSourceTag || 'Any'})`);
+          statsReport.push(`\n• ${subjectName}: ${selectedSub.length} questions (target: ${baseCount})`);
         } else {
-          statsReport.push(`${subjectName}: 0 questions (No matching subject cached for source: ${subjectSourceTag || 'Any'})`);
+          statsReport.push(`\n• ${subjectName}: 0 questions (No matching questions cached)`);
         }
       });
 
       if (compiledList.length === 0) {
-        alert(`The active question bank pool doesn't contain matching questions for any of the subjects mapped to "${exam.name}". Please load or classify questions into standard subjects (such as ${Object.keys(exam.subjectDistribution).join(', ')}) first!`);
+        alert(`The active question bank pool doesn't contain matching questions for any of the subjects mapped to "${finalExamName}". Please load or classify questions into standard subjects (such as ${Object.keys(finalDistribution).join(', ')}) first!`);
         return;
       }
 
@@ -2781,7 +2874,7 @@ export default function Dashboard() {
       const getSubjectPriority = (subName?: string): number => {
         if (!subName) return 999;
         const s = subName.toLowerCase().trim();
-        if (s.includes("gs") || s.includes("gk") || s.includes("general studies") || s.includes("general knowledge") || s.includes("general awareness")) {
+        if (s.includes("gs") || s.includes("gk") || s.includes("general studies") || s.includes("general knowledge") || s.includes("general awareness") || s.includes("polity") || s.includes("history") || s.includes("geography") || s.includes("science")) {
           return 0;
         }
         if (s.includes("reasoning") || s.includes("mental ability")) {
@@ -2796,7 +2889,7 @@ export default function Dashboard() {
         if (s.includes("hindi")) {
           return 4;
         }
-        if (s.includes("computer")) {
+        if (s.includes("computer") || s.includes("cs")) {
           return 5;
         }
         if (s.includes("teaching")) {
@@ -2813,15 +2906,15 @@ export default function Dashboard() {
 
       const settings: QuizSettings = {
         questionCount: compiledList.length,
-        subject: exam.name,
-        hasTimer: true,
-        durationMinutes: exam.durationMinutes,
+        subject: finalExamName,
+        hasTimer,
+        durationMinutes: finalDuration,
         correctAnswerMarks: exam.correctAnswerMarks ?? 4,
         negativeMarking: exam.negativeMarking ?? -1
       };
 
-      console.log(`Generated exam [${exam.name}]. Distribution stats:`, statsReport.join(""));
-      alert(`Mock generated for ${exam.name}!Total compiled questions: ${compiledList.length}Duration: ${exam.durationMinutes} Minutes.Subject composition detail:${statsReport.join("")}`);
+      console.log(`Generated exam [${finalExamName}]. Distribution stats:`, statsReport.join(""));
+      alert(`Mock generated for ${finalExamName}!\nTotal compiled questions: ${compiledList.length}\nDuration: ${finalDuration} Minutes.\nSubject composition detail:${statsReport.join("")}`);
       
       setActiveQuizQuestions(compiledList);
       setActiveQuizSettings(settings);
@@ -4475,6 +4568,60 @@ export default function Dashboard() {
                           </div>
                         </div>
 
+                        {/* DSSSB Section Selector Option */}
+                        {(() => {
+                          const isSelectedDSSSB = selectedExamId.toLowerCase().includes("dsssb") || 
+                            (examConfigs.find(e => e.id === selectedExamId)?.name || "").toLowerCase().includes("dsssb");
+                          if (!isSelectedDSSSB) return null;
+                          return (
+                            <div className="bg-indigo-50/40 dark:bg-slate-800/40 p-4.5 rounded-2xl border border-indigo-100/50 dark:border-slate-700/50 animate-fade-in text-left">
+                              <label className="block text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest mb-3 ml-1">
+                                DSSSB Exam Mock Sections
+                              </label>
+                              <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 dark:bg-slate-850 rounded-xl">
+                                <button
+                                  type="button"
+                                  onClick={() => setDsssbSectionMode('whole')}
+                                  className={`py-2 text-center rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                    dsssbSectionMode === 'whole'
+                                      ? 'bg-white dark:bg-slate-900 text-indigo-650 dark:text-indigo-400 shadow-sm'
+                                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                  }`}
+                                >
+                                  Whole Test
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDsssbSectionMode('part_a')}
+                                  className={`py-2 text-center rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                    dsssbSectionMode === 'part_a'
+                                      ? 'bg-white dark:bg-slate-900 text-indigo-650 dark:text-indigo-400 shadow-sm'
+                                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                  }`}
+                                >
+                                  Part A Only
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDsssbSectionMode('part_b')}
+                                  className={`py-2 text-center rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                    dsssbSectionMode === 'part_b'
+                                      ? 'bg-white dark:bg-slate-900 text-indigo-650 dark:text-indigo-400 shadow-sm'
+                                      : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+                                  }`}
+                                >
+                                  Part B Only
+                                </button>
+                              </div>
+                              <div className="mt-2 text-[9px] text-slate-400 dark:text-slate-500 font-medium leading-relaxed pl-1">
+                                {dsssbSectionMode === 'whole' && "✓ Includes Part A (100 Qs: GS, Maths, Reasoning, Hindi, English) & Part B (100 Qs: CS, Teaching Methodology)."}
+                                {dsssbSectionMode === 'part_a' && "✓ Part A includes 100 Qs (20 each of GS, Mathematics, Reasoning, Hindi, and English)."}
+                                {dsssbSectionMode === 'part_b' && "✓ Part B includes 100 Qs (80 Computer Science and 20 Teaching Methodology)."}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
                         {/* Render custom options ONLY for custom exam mode */}
                         {selectedExamId === "custom" ? (
                           <MockBuilder 
@@ -4499,9 +4646,47 @@ export default function Dashboard() {
                           (() => {
                             const conf = examConfigs.find(e => e.id === selectedExamId);
                             if (!conf) return null;
-                            const totalQuestionsMapped = Object.values(conf.subjectDistribution).reduce((sum, num) => (sum as number) + (num as number), 0);
+
+                            const isDSSSB = conf.id.toLowerCase().includes("dsssb") || conf.name.toLowerCase().includes("dsssb");
+                            let totalQuestionsMapped = Object.values(conf.subjectDistribution).reduce((sum, num) => (sum as number) + (num as number), 0);
+                            let duration = conf.durationMinutes;
+                            let subDist = conf.subjectDistribution;
+
+                            if (isDSSSB) {
+                              if (dsssbSectionMode === 'part_a') {
+                                totalQuestionsMapped = 100;
+                                duration = 60;
+                                subDist = {
+                                  'General Studies': 20,
+                                  'Mathematics': 20,
+                                  'Reasoning': 20,
+                                  'Hindi': 20,
+                                  'English': 20
+                                };
+                              } else if (dsssbSectionMode === 'part_b') {
+                                totalQuestionsMapped = 100;
+                                duration = 60;
+                                subDist = {
+                                  'Computer': 80,
+                                  'Teaching Methodology': 20
+                                };
+                              } else {
+                                totalQuestionsMapped = 200;
+                                duration = 120;
+                                subDist = {
+                                  'General Studies': 20,
+                                  'Mathematics': 20,
+                                  'Reasoning': 20,
+                                  'Hindi': 20,
+                                  'English': 20,
+                                  'Computer': 80,
+                                  'Teaching Methodology': 20
+                                };
+                              }
+                            }
+
                             return (
-                              <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-150/40 p-5 rounded-2xl space-y-4 animate-fade-in text-left">
+                              <div className="bg-indigo-5/50 dark:bg-indigo-950/20 border border-indigo-150/40 p-5 rounded-2xl space-y-4 animate-fade-in text-left">
                                 <div className="flex items-center justify-between text-[10px] font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-widest">
                                   <span>🔒 Synced Parameters</span>
                                   <span className="bg-indigo-200 dark:bg-indigo-800 text-[9px] px-1.5 py-0.5 rounded">Admin Setup Locked</span>
@@ -4510,11 +4695,22 @@ export default function Dashboard() {
                                 <div className="grid grid-cols-2 gap-4">
                                   <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                                     <span className="text-[9px] text-slate-400 uppercase tracking-widest block font-bold leading-none mb-1">Time Limit</span>
-                                    <span className="text-sm font-black font-mono text-indigo-600 dark:text-indigo-400">{conf.durationMinutes} Minutes</span>
+                                    <span className="text-sm font-black font-mono text-indigo-600 dark:text-indigo-400">{duration} Minutes</span>
                                   </div>
                                   <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                                     <span className="text-[9px] text-slate-400 uppercase tracking-widest block font-bold leading-none mb-1">Total questions</span>
                                     <span className="text-sm font-black font-mono text-indigo-600 dark:text-indigo-400">{totalQuestionsMapped} MCQs</span>
+                                  </div>
+                                </div>
+
+                                <div className="space-y-2 bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800">
+                                  <span className="text-[9px] text-slate-400 uppercase tracking-widest block font-extrabold leading-none mb-2">Subject Distribution Pattern</span>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {Object.entries(subDist).map(([sub, count]) => (
+                                      <span key={sub} className="bg-indigo-50/70 dark:bg-slate-800 text-[10px] text-indigo-700 dark:text-indigo-300 px-2 py-1 rounded-lg border border-indigo-100/30 dark:border-slate-700/50 font-bold">
+                                        {sub}: {count} Qs
+                                      </span>
+                                    ))}
                                   </div>
                                 </div>
                                 

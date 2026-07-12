@@ -31,7 +31,9 @@ import {
   setDoc, 
   deleteDoc, 
   doc, 
-  onSnapshot 
+  onSnapshot,
+  query,
+  limit
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
@@ -333,7 +335,7 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          if (parsed && parsed.length > 0) {
+          if (parsed) {
             setNotes(parsed);
             console.log(`📦 Loaded ${parsed.length} study notes from local cache (saved 100% of startup reads)`);
             return;
@@ -343,7 +345,7 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
 
       try {
         console.log("☁️ Fetching study notes from Firestore (Cache was empty)");
-        const qSnap = await getDocs(collection(db, "study_notes"));
+        const qSnap = await getDocs(query(collection(db, "study_notes"), limit(100)));
         const loadedNotes: StudyNote[] = [];
         qSnap.forEach(docSnap => {
           loadedNotes.push({
@@ -353,10 +355,8 @@ export const StudyNotes: React.FC<StudyNotesProps> = ({ isDarkMode, onBackToHome
         });
 
         setNotes(loadedNotes);
-        if (loadedNotes.length > 0) {
-          localStorage.setItem('MOCK_STUDY_NOTES', JSON.stringify(loadedNotes));
-          localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
-        }
+        localStorage.setItem('MOCK_STUDY_NOTES', JSON.stringify(loadedNotes));
+        localStorage.setItem('MOCK_STUDY_NOTES_SEEDED', 'true');
 
         // Trigger automatic seeding using a coordinated DB metadata flag to prevent infinite local re-uploads
         const locallySeeded = localStorage.getItem('MOCK_STUDY_NOTES_SEEDED') === 'true';

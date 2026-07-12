@@ -35,7 +35,20 @@ export async function getCachedQuestions(): Promise<Question[]> {
       const request = store.getAll();
 
       request.onsuccess = () => {
-        resolve(request.result as Question[]);
+        const result = request.result as Question[];
+        if (result && result.length > 0) {
+          resolve(result);
+        } else {
+          // If IndexedDB is empty, try localStorage backup fallback
+          const localQs = localStorage.getItem('MOCK_LOCAL_QUESTIONS_BACKUP');
+          if (localQs) {
+            try {
+              resolve(JSON.parse(localQs));
+              return;
+            } catch (e) {}
+          }
+          resolve([]);
+        }
       };
 
       request.onerror = () => {
@@ -44,11 +57,28 @@ export async function getCachedQuestions(): Promise<Question[]> {
     });
   } catch (error) {
     console.error("Failed to read from IndexedDB:", error);
+    const localQs = localStorage.getItem('MOCK_LOCAL_QUESTIONS_BACKUP');
+    if (localQs) {
+      try {
+        return JSON.parse(localQs);
+      } catch (e) {}
+    }
     return [];
   }
 }
 
 export async function saveQuestionsToIndexedDB(questions: Question[]): Promise<void> {
+  // Save to localStorage backup first as a fail-safe
+  try {
+    const serialized = JSON.stringify(questions);
+    if (serialized.length < 3500000) { // Limit to 3.5MB to be safe
+      localStorage.setItem('MOCK_LOCAL_QUESTIONS_BACKUP', serialized);
+      console.log(`✓ Saved backup of ${questions.length} questions to localStorage.`);
+    }
+  } catch (e) {
+    console.warn("Failed to write to localStorage backup (possibly quota exceeded):", e);
+  }
+
   try {
     const db = await initIndexedDB();
     return new Promise((resolve, reject) => {
@@ -94,6 +124,10 @@ export async function deleteQuestionFromIndexedDB(id: string): Promise<void> {
 }
 
 export async function clearQuestionsIndexedDB(): Promise<void> {
+  try {
+    localStorage.removeItem('MOCK_LOCAL_QUESTIONS_BACKUP');
+  } catch (e) {}
+
   try {
     const db = await initIndexedDB();
     return new Promise((resolve, reject) => {
